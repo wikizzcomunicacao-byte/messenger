@@ -4,23 +4,17 @@ from supabase import create_client, Client
 # Configuração da página em modo amplo
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
-# 1. CONEXÃO COM O SUPABASE (com suporte ao novo formato de chave sb_publishable_)
+# 1. CONEXÃO COM O SUPABASE
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-    
-    # Passa a chave nos cabeçalhos padrão do Supabase
-    headers = {
-        "apiKey": key,
-        "Authorization": f"Bearer {key}"
-    }
-    return create_client(url, key, options={"headers": headers})
+    return create_client(url, key)
 
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error(f"⚠️ Erro na inicialização: {e}")
+    st.error(f"⚠️ Erro na inicialização do Supabase: {e}")
     st.stop()
 
 # 2. PALETAS DE CORES (5 OPÇÕES)
@@ -101,7 +95,7 @@ col_chat, col_tarefas = st.columns([2, 1])
 with col_chat:
     st.subheader(f"Conversa em {canal_selecionado}")
     
-    # Buscar histórico de mensagens no Supabase
+    # Buscar histórico de mensagens
     mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).order("criado_em", desc=False).execute()
     mensagens = mensagens_res.data
 
@@ -129,7 +123,7 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas do Setor")
     
-    # Buscar tarefas pendentes do setor
+    # Buscar tarefas pendentes
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", canal_id).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
