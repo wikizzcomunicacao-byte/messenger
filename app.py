@@ -41,6 +41,8 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -66,7 +68,7 @@ if not st.session_state["autenticado"]:
                 if senha_input == dados_usuario.get("senha", "123456"):
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = dados_usuario
-                    registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", "Acesso ao sistema realizado com sucesso")
+                    registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", "Acesso ao sistema")
                     st.success("Login realizado com sucesso!")
                     st.rerun()
                 else:
@@ -106,10 +108,15 @@ if usuario_atual.get("eh_admin"):
     st.sidebar.success("👑 Administrador do Sistema")
 
 if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
-    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Usuário encerrou a sessão")
+    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
     st.rerun()
+
+# CONFIGURAÇÕES DE HORÁRIO DE TRABALHO E SILENCIAMENTO
+st.sidebar.divider()
+st.sidebar.title("⏰ Horário de Trabalho")
+modo_silencioso = st.sidebar.checkbox("🔕 Modo Não Perturbe", value=usuario_atual.get("modo_silencioso", False))
 
 # TEMAS
 st.sidebar.divider()
@@ -146,7 +153,7 @@ if usuario_atual.get("eh_admin"):
 tipo_chat = st.sidebar.radio("Modo de Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA 1: PAINEL DE USUÁRIOS E ZONA DE PERIGO (ADMIN)
+# TELA 1: PAINEL DE USUÁRIOS E LIMPEZA (ADMIN)
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Painel de Gestão (Admin)":
     st.title("⚙️ Gestão de Usuários e Sistema")
@@ -197,20 +204,18 @@ if tipo_chat == "⚙️ Painel de Gestão (Admin)":
 
     st.divider()
 
-    # 🧹 BOTAO DE LIMPAR TODAS AS CONVERSAS (EXCLUSIVO ADMIN)
     st.subheader("⚠️ Limpeza do Histórico de Conversas")
     st.caption("Esta ação é irreversível e excluirá todas as mensagens enviadas em canais e DMs.")
     
     with st.expander("🗑️ Clique para expandir as opções de exclusão em massa"):
-        st.error("Atenção: Todas as mensagens e dados de comunicados serão apagados permanentemente!")
+        st.error("Atenção: Todas as mensagens e comunicados serão apagados permanentemente!")
         confirmar_check = st.checkbox("Estou ciente e desejo apagar todas as conversas do sistema.")
         
         if st.button("🔥 Apagar Todas as Mensagens do Chat", type="primary"):
             if confirmar_check:
                 try:
-                    # Deleta todos os registros da tabela mensagens usando id gte 0
                     supabase.table("mensagens").delete().gte("id", 0).execute()
-                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LIMPAR_CONVERSAS", "Apagou todo o histórico de mensagens do chat")
+                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LIMPAR_CONVERSAS", "Apagou todo o histórico do chat")
                     st.success("✅ Todo o histórico de mensagens foi excluído com sucesso!")
                     st.rerun()
                 except Exception as ex:
@@ -270,7 +275,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS (MODO NORMAL)
+# TELA 3: CHAT E TAREFAS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -356,7 +361,6 @@ with col_chat:
                 else:
                     st.markdown(f"📎 [Baixar Arquivo / Documento]({url_arq})")
 
-            # COMUNICADOS OFICIAIS
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
                 total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
@@ -388,12 +392,14 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM
-    with st.container():
-        prompt = st.chat_input("Digite sua mensagem...")
-        
-        with st.expander("📎 Anexar Arquivo (Imagem, PDF, Documento, Áudio)"):
-            arquivo_enviado = st.file_uploader("Escolha um arquivo:", type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"])
+    # ENVIAR NOVA MENSAGEM / ANEXO
+    with st.form("form_envio_mensagem", clear_on_submit=True):
+        prompt = st.text_input("Digite sua mensagem...", key="input_texto_msg")
+        arquivo_enviado = st.file_uploader(
+            "📎 Anexar Arquivo (Imagem, PDF, Documento, Áudio)", 
+            type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
+            key=f"uploader_{st.session_state['uploader_key']}"
+        )
 
         col_opt1, col_opt2 = st.columns(2)
         with col_opt1:
@@ -401,19 +407,16 @@ with col_chat:
         with col_opt2:
             expiracao_opcao = st.selectbox("⏱️ Autodestruição:", ["Desativada", "5 minutos", "60 minutos"])
 
-        minutos_expira = None
-        if expiracao_opcao == "5 minutos":
-            minutos_expira = 5
-        elif expiracao_opcao == "60 minutos":
-            minutos_expira = 60
+        btn_enviar = st.form_submit_button("Enviar Mensagem", use_container_width=True)
 
-        if prompt or arquivo_enviado:
+        if btn_enviar and (prompt or arquivo_enviado):
+            minutos_expira = 5 if expiracao_opcao == "5 minutos" else (60 if expiracao_opcao == "60 minutos" else None)
             url_publica = None
             tipo_arquivo = None
 
             if arquivo_enviado is not None:
                 try:
-                    nome_arquivo = f"{datetime.now().timestamp()}_{arquivo_enviado.name}"
+                    nome_arquivo = f"{int(datetime.now().timestamp())}_{arquivo_enviado.name}"
                     bytes_data = arquivo_enviado.getvalue()
                     
                     supabase.storage.from_("anexos").upload(nome_arquivo, bytes_data)
@@ -435,6 +438,9 @@ with col_chat:
             }
             supabase.table("mensagens").insert(nova_msg).execute()
             registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
+            
+            # Altera a chave para resetar o componente de upload e evitar envios duplos
+            st.session_state["uploader_key"] += 1
             st.rerun()
 
 with col_tarefas:
