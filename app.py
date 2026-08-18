@@ -142,14 +142,13 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO GLOBAL DE NÃO LIDAS (EXCLUINDO AS PRÓPRIAS MENSAGENS)
+# CÁLCULO GLOBAL DE NÃO LIDAS (EXCLUINDO AS PRÓPRIA MENSAGENS)
 # ---------------------------------------------------------
 total_geral_nao_lidas = 0
 try:
     todas_as_msgs = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
     for m in todas_as_msgs:
         remetente = m.get("usuario_nome", "")
-        # Ignora mensagens enviadas pelo próprio usuário logado
         if not remetente.startswith(usuario_atual['nome']):
             dest_id = m.get("destinatario_id")
             if dest_id is None or dest_id == usuario_atual['id']:
@@ -274,7 +273,8 @@ else:
     
     mapa_dms = {}
     for u in outros:
-        dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("destinatario_id", usuario_atual['id']).execute().data or []
+        # Conta mensagens de DM direcionadas a mim onde o remetente é este usuário
+        dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
         
         qtd_dm = 0
         for m in dm_nao_lidas:
@@ -330,6 +330,7 @@ with col_chat:
                 is_me = remetente_msg.startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
+                # Marca automaticamente a mensagem como lida ao abrir a conversa (Canais ou DMs)
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
