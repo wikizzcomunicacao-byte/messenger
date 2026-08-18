@@ -132,7 +132,7 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO COM ESTILO PARA OS BALÕES DE NOTIFICAÇÃO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -142,6 +142,18 @@ st.markdown(f"""
         [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
+        
+        /* Estilo elegante para o balão de mensagens não lidas */
+        .unread-badge {{
+            background-color: #25d366;
+            color: #000000;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 6px;
+            display: inline-block;
+        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -207,7 +219,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTROLE INTELIGENTE DE LREADAS
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES OTIMIZADOS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -219,20 +231,19 @@ if tipo_chat == "🏢 Canais de Setor":
     canais = supabase.table("canais").select("*").order("id").execute().data or []
     
     mapa_canais = {}
+    nome_logado_str = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
+    
     for c in canais:
-        # Busca mensagens do canal que NÃO foram enviadas pelo próprio usuário e onde ele ainda não leu
         msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
         
-        # Conta apenas as que o usuário atual ainda não adicionou na lista de leitura e que não foram enviadas por ele mesmo
         nao_lidas = 0
-        nome_logado_str = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
         for m in msgs_canal:
             if m.get("usuario_nome") != nome_logado_str:
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     nao_lidas += 1
         
-        badge = f" 🔴 ({nao_lidas})" if nao_lidas > 0 else ""
+        badge = f" 🟢 {nao_lidas}" if nao_lidas > 0 else ""
         label = f"{c['icone']} #{c['nome']}{badge}"
         mapa_canais[label] = c
 
@@ -249,7 +260,6 @@ else:
     
     mapa_dms = {}
     for u in outros:
-        # Conta DMs não lidas enviadas por este usuário para o usuário atual
         dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas").eq("usuario_nome", f"{u['nome']} ({u['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
         
         qtd_dm = 0
@@ -258,7 +268,7 @@ else:
             if usuario_atual['id'] not in leituras:
                 qtd_dm += 1
 
-        badge_dm = f" 🔴 ({qtd_dm})" if qtd_dm > 0 else ""
+        badge_dm = f" 🟢 {qtd_dm}" if qtd_dm > 0 else ""
         label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
         mapa_dms[label_dm] = u
 
@@ -291,7 +301,7 @@ with col_chat:
                 is_me = msg['usuario_nome'] == nome_formatado_logado or msg['usuario_nome'].startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
-                # Marca automaticamente a mensagem como lida pelo usuário atual assim que ele visualiza o chat
+                # Marca automaticamente a mensagem como lida ao abrir o chat
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
