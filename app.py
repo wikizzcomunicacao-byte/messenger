@@ -425,7 +425,7 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (COMUNICADO E ANEXO COM TOOLTIP) ---
+    # --- PAINEL DE ENVIO COMPACTO (COMUNICADO LIMPO COM TOOLTIP E ANEXO) ---
     st.divider()
     
     col_input, col_com, col_clip, col_btn = st.columns([5.2, 0.8, 0.8, 0.8])
@@ -434,7 +434,14 @@ with col_chat:
         prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
     with col_com:
-        eh_comunicado = st.checkbox("📢", help="Marcar como Comunicado Oficial", label_visibility="collapsed")
+        st.markdown(
+            """
+            <div title="Marcar como Comunicado Oficial" style="display: flex; align-items: center; justify-content: center; height: 100%; cursor: pointer; padding-top: 5px;">
+            """, 
+            unsafe_allow_html=True
+        )
+        eh_comunicado = st.checkbox("📢", key="chk_comunicado", label_visibility="collapsed")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with col_clip:
         with st.popover("📎", help="Anexar arquivo"):
