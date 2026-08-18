@@ -330,7 +330,7 @@ with col_chat:
         @st.fragment(run_every=3)
         def renderizar_mensagens():
             try:
-                todas_atuais = supabase.table("mensagens").select("id, usuario_nome").execute().data or []
+                todas_atuais = supabase.table("mensagens").select("id, usuario_nome, texto").execute().data or []
             except:
                 todas_atuais = []
             qtd_atual = len(todas_atuais)
@@ -340,7 +340,8 @@ with col_chat:
                     ultima_msg = todas_atuais[-1]
                     remetente_ult = ultima_msg.get("usuario_nome", "")
                     if not remetente_ult.startswith(nome_limpo_usuario):
-                        st.toast(f"🔔 Nova mensagem de {remetente_ult}!", icon="💬")
+                        # ALERTA PERSISTENTE (FIXO NA TELA ATÉ QUE SEJA INTERagido ou LIDO)
+                        st.warning(f"🔔 Nova mensagem de {remetente_ult}: \"{ultima_msg.get('texto', '')}\"")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
             mensagens = []
