@@ -145,7 +145,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO PARA ALINHAMENTO PERFEITO DOS BOTÕES NO RODAPÉ
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -156,6 +156,12 @@ st.markdown(f"""
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
+        
+        /* Ajuste fino para alinhar os popovers e o botão de envio verticalmente na linha do input */
+        [data-testid="column"] {{
+            display: flex;
+            align-items: flex-end;
+        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -451,31 +457,29 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (COM FORMULÁRIO DE LIMPEZA CORRETA) ---
+    # --- PAINEL DE ENVIO COMPACTO (ALINHADO PERFEITAMENTE NA MESMA LINHA) ---
     st.divider()
     
-    with st.form(key="form_envio_msg", clear_on_submit=True):
-        col_input, col_com, col_clip, col_btn = st.columns([5.4, 0.6, 0.6, 0.8])
+    col_input, col_com, col_clip, col_btn = st.columns([5.0, 0.8, 0.8, 0.8])
 
-        with col_input:
-            prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
+    with col_input:
+        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
-        with col_com:
-            with st.popover("📢", help="Marcar como Comunicado Oficial"):
-                eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
+    with col_com:
+        with st.popover("📢", help="Marcar como Comunicado Oficial"):
+            eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
 
-        with col_clip:
-            with st.popover("📎", help="Anexar arquivo"):
-                arquivo_enviado = st.file_uploader(
-                    "Selecione o arquivo:", 
-                    type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
-                    key=f"uploader_{st.session_state['uploader_key']}",
-                    label_visibility="collapsed"
-                )
+    with col_clip:
+        with st.popover("📎", help="Anexar arquivo"):
+            arquivo_enviado = st.file_uploader(
+                "Selecione o arquivo:", 
+                type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
+                key=f"uploader_{st.session_state['uploader_key']}",
+                label_visibility="collapsed"
+            )
 
-        with col_btn:
-            st.write("") # Ajuste alinhamento vertical
-            btn_enviar = st.form_submit_button("🚀", help="Enviar Mensagem")
+    with col_btn:
+        btn_enviar = st.button("🚀", help="Enviar Mensagem", use_container_width=True)
 
     if 'chk_comunicado_popover' not in st.session_state:
         st.session_state['chk_comunicado_popover'] = False
@@ -515,6 +519,7 @@ with col_chat:
         supabase.table("mensagens").insert(nova_msg).execute()
         registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
         
+        st.session_state["input_texto_msg"] = ""
         st.session_state["uploader_key"] += 1
         st.rerun()
 
