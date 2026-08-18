@@ -121,10 +121,66 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# TIPO DE CONVERSA
+# SELEÇÃO DE MODOS (INCLUI OPÇÃO DE ADMIN SE O USUÁRIO FOR ADMIN)
 st.sidebar.divider()
-tipo_chat = st.sidebar.radio("Modo de Conversa:", ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"])
+opcoes_modo = ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"]
+if usuario_atual.get("eh_admin"):
+    opcoes_modo.append("⚙️ Painel de Gestão (Admin)")
 
+tipo_chat = st.sidebar.radio("Modo de Navegação:", opcoes_modo)
+
+# ---------------------------------------------------------
+# TELA 1: PAINEL EXCLUSIVO DO ADMINISTRADOR
+# ---------------------------------------------------------
+if tipo_chat == "⚙️ Painel de Gestão (Admin)":
+    st.title("⚙️ Gestão de Usuários (Administração)")
+    st.caption("Cadastre novos colaboradores ou remova perfis existentes no sistema.")
+    
+    col_cad, col_lista = st.columns([1, 1])
+    
+    with col_cad:
+        st.subheader("➕ Cadastrar Novo Colaborador")
+        with st.form("form_novo_usuario"):
+            novo_nome = st.text_input("Nome Completo:")
+            setores_existentes = ["licitacao", "compras", "financeiro", "farmaceutica", "estoque", "faturamento-pedidos", "cotacao", "loja-online", "geral"]
+            novo_setor = st.selectbox("Setor:", setores_existentes)
+            nova_senha = st.text_input("Senha de Acesso:", value="123456")
+            e_admin = st.checkbox("Dar permissões de Administrador")
+            
+            btn_salvar_user = st.form_submit_button("Cadastrar Usuário")
+            if btn_salvar_user:
+                if novo_nome:
+                    supabase.table("usuarios").insert({
+                        "nome": novo_nome,
+                        "setor": novo_setor,
+                        "senha": nova_senha,
+                        "eh_admin": e_admin
+                    }).execute()
+                    st.success(f"Usuário '{novo_nome}' cadastrado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("Informe o nome do usuário.")
+
+    with col_lista:
+        st.subheader("👥 Usuários Cadastrados")
+        for u in todos_usuarios:
+            with st.container(border=True):
+                col_info, col_del = st.columns([3, 1])
+                with col_info:
+                    admin_tag = " 👑" if u.get("eh_admin") else ""
+                    st.markdown(f"**{u['nome']}**{admin_tag}")
+                    st.caption(f"Setor: {u['setor']} | Senha: {u.get('senha', '123456')}")
+                with col_del:
+                    if u['id'] != usuario_atual['id']:
+                        if st.button("❌", key=f"del_u_{u['id']}"):
+                            supabase.table("usuarios").delete().eq("id", u['id']).execute()
+                            st.success("Removido!")
+                            st.rerun()
+    st.stop()
+
+# ---------------------------------------------------------
+# TELA 2: CHAT E TAREFAS (MODO NORMAL)
+# ---------------------------------------------------------
 canal_id = None
 destinatario = None
 membros_canal = []
@@ -162,14 +218,13 @@ else:
     destinatario = mapa_dms[usuario_dm_selecionado]
     titulo_chat = f"Conversa Privada com {destinatario['nome']}"
 
-# INTERFACE PRINCIPAL
+# INTERFACE PRINCIPAL DO CHAT
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    # Buscar mensagens do canal ou DMs
     if tipo_chat == "🏢 Canais de Setor":
         mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
         mensagens = mensagens_res.data
@@ -178,10 +233,8 @@ with col_chat:
         res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
         mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-    # EXIBIÇÃO E EXPIRAÇÃO DE MENSAGENS
     agora = datetime.now(timezone.utc)
     for msg in mensagens:
-        # Verificar se mensagem temporária expirou
         if msg.get("tempo_expiracao_minutos"):
             criado_em = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
             expira_em = criado_em + timedelta(minutes=msg["tempo_expiracao_minutos"])
@@ -199,7 +252,6 @@ with col_chat:
             st.markdown(f"**{msg['usuario_nome']}**")
             st.write(msg['texto'])
 
-            # Lógica do Comunicado Oficial (Restrita aos membros do setor)
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
                 total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
@@ -224,13 +276,11 @@ with col_chat:
             if msg.get("tempo_expiracao_minutos"):
                 st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
 
-            # 🗑️ PERMISSÃO DE EXCLUSÃO (EXCLUSIVA PARA ADMINISTRADORES)
             if usuario_atual.get("eh_admin"):
                 if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
                     supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM
     with st.container():
         prompt = st.chat_input("Digite sua mensagem...")
         
