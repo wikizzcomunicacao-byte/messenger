@@ -129,11 +129,12 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO GLOBAL DE NÃO LIDAS
+# CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS PARA O SININHO
 # ---------------------------------------------------------
+mensagens_nao_lidas_detalhes = []
 total_geral_nao_lidas = 0
 try:
-    todas_as_msgs = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
+    todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
     for m in todas_as_msgs:
         remetente = m.get("usuario_nome", "")
         if not remetente.startswith(usuario_atual['nome']):
@@ -142,12 +143,21 @@ try:
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     total_geral_nao_lidas += 1
+                    mensagens_nao_lidas_detalhes.append(m)
 except:
     pass
 
 # BARRA LATERAL - PERFIL
 if total_geral_nao_lidas > 0:
     st.sidebar.markdown(f"### 🔔 **{usuario_atual['nome']}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
+    
+    # EXPANSOR DO SININHO MOSTRANDO AS NOTIFICAÇÕES AO CLICAR
+    with st.sidebar.expander("📌 Ver Notificações Pendentes"):
+        for mn in mensagens_nao_lidas_detalhes:
+            rem = mn.get("usuario_nome", "Alguém")
+            txt = mn.get("texto", "Arquivo ou mídia")
+            st.markdown(f"**{rem}**: {txt}")
+            st.divider()
 else:
     st.sidebar.title(f"👤 {usuario_atual['nome']}")
 
@@ -419,7 +429,7 @@ with col_tarefas:
         if st.button("Salvar Tarefa"):
             if nova_tarefa_titulo:
                 supabase.table("tarefas").insert({
-                    "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else 1,
+                    "canal_id": canal_id if canal_id else 1,
                     "titulo": nova_tarefa_titulo,
                     "atribuido_a": responsavel_sel,
                     "status": "Pendente"
