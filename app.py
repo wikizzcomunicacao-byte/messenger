@@ -241,7 +241,7 @@ if usuario_atual.get("eh_admin"):
 tipo_chat = st.sidebar.radio("Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN) COM OPÇÃO DE EDITAR
+# TELA: PAINEL DE GESTÃO (ADMIN) COM OPÇÃO DE EDITAR E REMOVER FUNCIONAL
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Admin":
     st.title("⚙️ Gestão de Usuários e Sistema")
@@ -279,17 +279,18 @@ if tipo_chat == "⚙️ Admin":
                 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    # Botão para expandir a edição
                     if st.button("✏️ Editar", key=f"edit_toggle_{u['id']}"):
                         st.session_state[f"editando_{u['id']}"] = not st.session_state.get(f"editando_{u['id']}", False)
+                        st.rerun()
                 with col_btn2:
                     if u['id'] != usuario_atual['id']:
                         if st.button("❌ Remover", key=f"del_u_{u['id']}"):
                             try:
                                 supabase.table("usuarios").delete().eq("id", u['id']).execute()
+                                st.success(f"Usuário {u['nome']} removido com sucesso!")
                                 st.rerun()
-                            except:
-                                pass
+                            except Exception as e:
+                                st.error(f"Erro ao remover: {e}")
                 
                 # Formulário de Edição Inline se ativado
                 if st.session_state.get(f"editando_{u['id']}", False):
