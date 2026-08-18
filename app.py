@@ -5,7 +5,7 @@ import pytz
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
-    page_title="Chat Corporativo", 
+    page_title="Senhora Lavanderia", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -54,7 +54,7 @@ fuso_brasilia = timezone(timedelta(hours=-3))
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
 if not st.session_state["autenticado"]:
-    st.markdown("<h2 style='text-align: center;'>🔒 Login - Chat Corporativo</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔒 Login - Senhora Lavanderia</h2>", unsafe_allow_html=True)
     
     agora_local = datetime.now(fuso_brasilia)
     hora_atual = agora_local.hour
@@ -143,7 +143,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO PARA TRAVAR O ALINHAMENTO DO FORMULÁRIO DE ENVIO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -154,6 +154,13 @@ st.markdown(f"""
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
+        
+        /* Força as colunas do formulário de envio a ficarem sempre em linha horizontal sem quebrar */
+        div[data-testid="stForm"] div[data-testid="horizontal-block"] {{
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -449,17 +456,17 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO UNIFICADO COM FORMULÁRIO (LIMPO E SEM DESALINHAMENTOS) ---
+    # --- PAINEL DE ENVIO COMPACTO E RESPONSIVO ---
     st.divider()
     
     with st.form(key="form_envio_msg", clear_on_submit=True):
-        col_input, col_com, col_clip, col_btn = st.columns([5.0, 0.9, 0.9, 0.7])
+        col_input, col_com, col_clip, col_btn = st.columns([5.5, 1.2, 1.2, 0.8])
 
         with col_input:
             prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
         with col_com:
-            eh_comunicado = st.checkbox("📢 Comunicado", help="Marcar como Comunicado Oficial")
+            eh_comunicado = st.checkbox("📢 Aviso", help="Marcar como Comunicado Oficial")
 
         with col_clip:
             arquivo_enviado = st.file_uploader(
