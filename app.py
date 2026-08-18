@@ -45,8 +45,6 @@ if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 if "ultima_qtd_msgs" not in st.session_state:
     st.session_state["ultima_qtd_msgs"] = 0
-if "chat_selecionado" not in st.session_state:
-    st.session_state["chat_selecionado"] = "canal_1" # Inicia no canal geral por padrão
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -160,7 +158,7 @@ try:
 except:
     pass
 
-# BARRA LATERAL - PERFIL COM ÍCONE DE NOTIFICAÇÃO
+# BARRA LATERAL - PERFIL
 if total_geral_nao_lidas > 0:
     st.sidebar.markdown(f"### 🔔 **{usuario_atual['nome']}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
 else:
@@ -181,25 +179,17 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 st.sidebar.divider()
 
 # OPÇÕES EXTRAS PARA ADMIN
+opcoes_extras = []
 if usuario_atual.get("eh_admin"):
-    if st.sidebar.button("⚙️ Gestão / Admin", use_container_width=True):
-        st.session_state["chat_selecionado"] = "admin"
-        st.rerun()
-    if st.sidebar.button("📊 Relatórios", use_container_width=True):
-        st.session_state["chat_selecionado"] = "relatorios"
-        st.rerun()
-    st.sidebar.divider()
+    opcoes_extras = ["⚙️ Admin", "📊 Relatórios"]
 
 # ---------------------------------------------------------
-# LISTA ÚNICA E ABERTA: CANAIS + MENSAGENS DIRETAS (DMs)
+# CONSTRUÇÃO DA LISTA ÚNICA DE NAVEGAÇÃO LATERAL (RÁDIO LIMPO)
 # ---------------------------------------------------------
-st.sidebar.markdown("### 💬 Conversas & Canais")
-
-# 1. BUSCAR CANAIS
 canais = supabase.table("canais").select("*").order("id").execute().data or []
+mapa_canais = {}
 for c in canais:
     msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
-    
     nao_lidas = 0
     for m in msgs_canal:
         remetente = m.get("usuario_nome", "")
@@ -207,25 +197,14 @@ for c in canais:
             leituras = m.get("leituras_confirmadas") or []
             if usuario_atual['id'] not in leituras:
                 nao_lidas += 1
-    
     badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
-    btn_label = f"{c['icone']} #{c['nome']}{badge}"
-    
-    key_canal = f"canal_{c['id']}"
-    is_active = st.session_state["chat_selecionado"] == key_canal
-    
-    if st.sidebar.button(btn_label, key=f"btn_{key_canal}", use_container_width=True):
-        st.session_state["chat_selecionado"] = key_canal
-        st.rerun()
+    label = f"{c['icone']} #{c['nome']}{badge}"
+    mapa_canais[label] = c
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 👤 Mensagens Diretas")
-
-# 2. BUSCAR USUÁRIOS PARA DM
 outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
+mapa_dms = {}
 for u in outros_usuarios:
     dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
-    
     qtd_dm = 0
     for m in dm_nao_lidas:
         remetente = m.get("usuario_nome", "")
@@ -233,24 +212,33 @@ for u in outros_usuarios:
             leituras = m.get("leituras_confirmadas") or []
             if usuario_atual['id'] not in leituras:
                 qtd_dm += 1
-
     badge_dm = f" 🟢 ({qtd_dm})" if qtd_dm > 0 else ""
-    btn_label_dm = f"👤 {u['nome']}{badge_dm}"
-    
-    key_dm = f"dm_{u['id']}"
-    is_active = st.session_state["chat_selecionado"] == key_dm
-    
-    if st.sidebar.button(btn_label_dm, key=f"btn_{key_dm}", use_container_width=True):
-        st.session_state["chat_selecionado"] = key_dm
-        st.rerun()
+    label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
+    mapa_dms[label_dm] = u
+
+# Lista unificada no rádio lateral
+lista_opcoes = list(mapa_canais.keys()) + list(mapa_dms.keys()) + opcoes_extras
+escolha_atual = st.sidebar.radio("Conversas e Canais:", lista_opcoes, label_visibility="collapsed")
 
 # ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN)
+# LÓGICA DE SELEÇÃO DA TELA
 # ---------------------------------------------------------
-if st.session_state["chat_selecionado"] == "admin":
+canal_id = None
+destinatario = None
+membros_canal = []
+
+if escolha_atual in mapa_canais:
+    obj_canal = mapa_canais[escolha_atual]
+    canal_id = obj_canal['id']
+    canal_nome_limpo = obj_canal['nome']
+    titulo_chat = f"#{canal_nome_limpo}"
+    membros_canal = todos_usuarios if canal_nome_limpo == "geral" else [u for u in todos_usuarios if u['setor'].lower() in canal_nome_limpo.lower()]
+elif escolha_atual in mapa_dms:
+    destinatario = mapa_dms[escolha_atual]
+    titulo_chat = f"Conversa com {destinatario['nome']}"
+elif escolha_atual == "⚙️ Admin":
     st.title("⚙️ Gestão de Usuários e Sistema")
     col_cad, col_lista = st.columns(2)
-    
     with col_cad:
         st.subheader("➕ Cadastrar Colaborador")
         with st.form("form_novo_usuario"):
@@ -261,7 +249,6 @@ if st.session_state["chat_selecionado"] == "admin":
             h_inicio = st.number_input("Início Expediente:", value=7, min_value=0, max_value=23)
             h_fim = st.number_input("Fim Expediente:", value=19, min_value=0, max_value=23)
             e_admin = st.checkbox("Administrador")
-            
             if st.form_submit_button("Cadastrar"):
                 if novo_nome:
                     supabase.table("usuarios").insert({
@@ -270,7 +257,6 @@ if st.session_state["chat_selecionado"] == "admin":
                     }).execute()
                     st.success("Cadastrado com sucesso!")
                     st.rerun()
-
     with col_lista:
         st.subheader("👥 Usuários")
         for u in todos_usuarios:
@@ -281,36 +267,15 @@ if st.session_state["chat_selecionado"] == "admin":
                         supabase.table("usuarios").delete().eq("id", u['id']).execute()
                         st.rerun()
     st.stop()
-
-# ---------------------------------------------------------
-# TELA: RELATÓRIOS E LOGS (ADMIN)
-# ---------------------------------------------------------
-if st.session_state["chat_selecionado"] == "relatorios":
+elif escolha_atual == "📊 Relatórios":
     st.title("📊 Relatórios e Logs de Auditoria")
     logs = supabase.table("logs_acesso").select("*").order("criado_em", desc=True).limit(50).execute().data or []
     st.dataframe(logs, hide_index=True, use_container_width=True)
     st.stop()
 
 # ---------------------------------------------------------
-# RENDERIZAÇÃO DO CHAT SELECIONADO (CANAL OU DM)
+# RENDERIZAÇÃO DO CHAT E TAREFAS
 # ---------------------------------------------------------
-selecao = st.session_state["chat_selecionado"]
-canal_id = None
-destinatario = None
-membros_canal = []
-
-if selecao.startswith("canal_"):
-    c_id = int(selecao.split("_")[1])
-    obj_canal = next((c for c in canais if c['id'] == c_id), canais[0])
-    canal_id = obj_canal['id']
-    canal_nome_limpo = obj_canal['nome']
-    titulo_chat = f"#{canal_nome_limpo}"
-    membros_canal = todos_usuarios if canal_nome_limpo == "geral" else [u for u in todos_usuarios if u['setor'].lower() in canal_nome_limpo.lower()]
-elif selecao.startswith("dm_"):
-    u_id = selecao.split("_")[1]
-    destinatario = next((u for u in outros_usuarios if u['id'] == u_id), outros_usuarios[0])
-    titulo_chat = f"Conversa com {destinatario['nome']}"
-
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
