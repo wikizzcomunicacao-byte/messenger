@@ -247,12 +247,19 @@ with col_chat:
             if tipo_chat == "🏢 Canais de Setor":
                 mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
             else:
+                # Consulta otimizada e correta para DMs utilizando o ID do destinatario
                 res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
                 res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
-                mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
+                
+                # Fallback caso tenha mensagens antigas gravadas apenas por nome
+                res3 = supabase.table("mensagens").select("*").eq("usuario_nome", destinatario['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
+                
+                # Unifica e remove duplicatas ordenando por data
+                todas_mensagens = {m['id']: m for m in (res1 + res2 + res3)}
+                mensagens = sorted(list(todas_mensagens.values()), key=lambda x: x['criado_em'])
 
             for msg in mensagens:
-                is_me = msg['usuario_nome'] == nome_formatado_logado
+                is_me = msg['usuario_nome'] == nome_formatado_logado or msg['usuario_nome'].startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
                 hora_formatada = ""
@@ -289,22 +296,22 @@ with col_chat:
 
         renderizar_mensagens()
         
-        # SCRIPT JAVASCRIPT AUTOMÁTICO PARA FORÇAR O SCROLL PARA O FINAL A CADA ATUALIZAÇÃO
+        # SCRIPT JAVASCRIPT AUTOMÁTICO PARA ROLAR O CHAT PARA O FINAL
         components.html("""
             <script>
                 const doc = window.parent.document;
                 function autoScroll() {
-                    const containers = doc.querySelectorAll('div[data-testid="stVerticalBlock"]');
-                    containers.forEach(el => {
-                        if (el.scrollHeight > el.clientHeight && el.style.overflow !== 'hidden') {
-                            el.scrollTop = el.scrollHeight;
-                        }
-                    });
                     const scrollBoxes = doc.querySelectorAll('div[data-testid="stVerticalBlockBorderWrapper"]');
                     scrollBoxes.forEach(box => {
                         const inner = box.querySelector('div[style*="overflow"]');
                         if (inner) {
                             inner.scrollTop = inner.scrollHeight;
+                        }
+                    });
+                    const containers = doc.querySelectorAll('div[data-testid="stVerticalBlock"]');
+                    containers.forEach(el => {
+                        if (el.scrollHeight > el.clientHeight && el.style.overflow !== 'hidden') {
+                            el.scrollTop = el.scrollHeight;
                         }
                     });
                 }
