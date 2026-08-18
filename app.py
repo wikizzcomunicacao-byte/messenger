@@ -44,6 +44,8 @@ if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 if "uploader_key" not in st.session_state:
     st.session_state["uploader_key"] = 0
+if "input_texto_msg" not in st.session_state:
+    st.session_state["input_texto_msg"] = ""
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -449,29 +451,31 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (COM LIMPEZA DO CAMPO DE TEXTO) ---
+    # --- PAINEL DE ENVIO COMPACTO (COM FORMULÁRIO DE LIMPEZA CORRETA) ---
     st.divider()
     
-    col_input, col_com, col_clip, col_btn = st.columns([5.4, 0.6, 0.6, 0.8])
+    with st.form(key="form_envio_msg", clear_on_submit=True):
+        col_input, col_com, col_clip, col_btn = st.columns([5.4, 0.6, 0.6, 0.8])
 
-    with col_input:
-        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
+        with col_input:
+            prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
-    with col_com:
-        with st.popover("📢", help="Marcar como Comunicado Oficial"):
-            eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
+        with col_com:
+            with st.popover("📢", help="Marcar como Comunicado Oficial"):
+                eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
 
-    with col_clip:
-        with st.popover("📎", help="Anexar arquivo"):
-            arquivo_enviado = st.file_uploader(
-                "Selecione o arquivo:", 
-                type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
-                key=f"uploader_{st.session_state['uploader_key']}",
-                label_visibility="collapsed"
-            )
+        with col_clip:
+            with st.popover("📎", help="Anexar arquivo"):
+                arquivo_enviado = st.file_uploader(
+                    "Selecione o arquivo:", 
+                    type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
+                    key=f"uploader_{st.session_state['uploader_key']}",
+                    label_visibility="collapsed"
+                )
 
-    with col_btn:
-        btn_enviar = st.button("🚀", help="Enviar Mensagem")
+        with col_btn:
+            st.write("") # Ajuste alinhamento vertical
+            btn_enviar = st.form_submit_button("🚀", help="Enviar Mensagem")
 
     if 'chk_comunicado_popover' not in st.session_state:
         st.session_state['chk_comunicado_popover'] = False
@@ -511,8 +515,6 @@ with col_chat:
         supabase.table("mensagens").insert(nova_msg).execute()
         registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
         
-        # Limpa o campo de texto limpando a chave do session_state
-        st.session_state["input_texto_msg"] = ""
         st.session_state["uploader_key"] += 1
         st.rerun()
 
