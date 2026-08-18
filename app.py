@@ -241,7 +241,7 @@ if usuario_atual.get("eh_admin"):
 tipo_chat = st.sidebar.radio("Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN) COM OPÇÃO DE EDITAR E REMOVER FUNCIONAL
+# TELA: PAINEL DE GESTÃO (ADMIN) COM REMOÇÃO SEGURA
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Admin":
     st.title("⚙️ Gestão de Usuários e Sistema")
@@ -286,7 +286,11 @@ if tipo_chat == "⚙️ Admin":
                     if u['id'] != usuario_atual['id']:
                         if st.button("❌ Remover", key=f"del_u_{u['id']}"):
                             try:
+                                # Remove primeiro as referências nas mensagens e DMs para evitar erro de chave estrangeira
+                                supabase.table("mensagens").delete().eq("destinatario_id", u['id']).execute()
+                                # Agora remove o usuário com segurança
                                 supabase.table("usuarios").delete().eq("id", u['id']).execute()
+                                
                                 st.success(f"Usuário {u['nome']} removido com sucesso!")
                                 st.rerun()
                             except Exception as e:
