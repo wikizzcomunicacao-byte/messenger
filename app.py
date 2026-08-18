@@ -42,8 +42,6 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
-if "uploader_key" not in st.session_state:
-    st.session_state["uploader_key"] = 0
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -133,7 +131,7 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO PARA ISOLAR O INPUT NA COLUNA DO CHAT
+# CSS DINÂMICO PARA ROLAGEM AUTOMÁTICA E LAYOUT LIMPO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -144,12 +142,13 @@ st.markdown(f"""
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         
-        /* Fixa o container de envio no final da coluna de chat */
-        .chat-container {{
+        /* Área de mensagens com rolagem interna automática */
+        .chat-scroll-area {{
+            max-height: 520vh;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
-            height: 80vh;
-            justify-content: space-between;
+            padding-bottom: 20px;
         }}
         
         [data-testid="stSidebarCollapseButton"],
@@ -249,8 +248,8 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    # Área de rolagem para as mensagens (com altura fixa e scroll interno)
-    with st.container(height=500):
+    # Container com altura controlada e scroll interno para as mensagens rolarem sozinhas
+    with st.container(height=480):
         @st.fragment(run_every=3)
         def renderizar_mensagens():
             if tipo_chat == "🏢 Canais de Setor":
@@ -298,15 +297,10 @@ with col_chat:
 
         renderizar_mensagens()
     
-    # Campo de envio fixo logo abaixo da área de mensagens da coluna do chat
-    with st.form(key="form_envio_chat_fixo", clear_on_submit=True):
-        col_inp, col_btn = st.columns([5, 1])
-        with col_inp:
-            prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem e aperte Enter...", key="input_texto_msg", label_visibility="collapsed")
-        with col_btn:
-            btn_enviar = st.form_submit_button("🚀 Enviar", use_container_width=True)
-
-    if btn_enviar and prompt:
+    # Campo nativo de chat do Streamlit (Fixo no rodapé da coluna, envia com Enter, sem botão de foguete)
+    prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_chat_principal")
+    
+    if prompt:
         supabase.table("mensagens").insert({
             "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else None,
             "usuario_nome": nome_formatado_logado,
