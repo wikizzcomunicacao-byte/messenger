@@ -1,8 +1,13 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página
-st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
+# Configuração da página - Barra lateral expandida por padrão
+st.set_page_config(
+    page_title="Chat Corporativo", 
+    page_icon="💬", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # 1. CONEXÃO COM O SUPABASE
 @st.cache_resource
@@ -93,7 +98,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO (INCLUI BLOQUEIO DO BOTÃO DE RECOLHER)
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -104,10 +109,16 @@ st.markdown(f"""
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
+        
+        /* Oculta os botões de recolher e expandir a barra lateral */
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"] {{
+            display: none !important;
+        }}
     </style>
 """, unsafe_allow_html=True)
 
-# TIPO DE CONVERSA (CANAL OU MENSAGEM DIRETA)
+# TIPO DE CONVERSA
 st.sidebar.divider()
 tipo_chat = st.sidebar.radio("Modo de Conversa:", ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"])
 
@@ -127,7 +138,6 @@ if tipo_chat == "🏢 Canais de Setor":
 
 else:
     todos_usuarios = buscar_usuarios()
-    # Filtrar para não listar o próprio usuário logado
     outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
     mapa_dms = {f"👤 {u['nome']} ({u['setor']})": u for u in outros_usuarios}
     
@@ -143,19 +153,13 @@ with col_chat:
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
     if tipo_chat == "🏢 Canais de Setor":
-        # Buscar mensagens do canal
         mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
         mensagens = mensagens_res.data
     else:
-        # Buscar mensagens privadas trocadas entre os dois usuários
-        # Mensagens de mim para ele OU dele para mim
         res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data
         res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
-        
-        # Junta e ordena por data
         mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-    # Exibir histórico de mensagens
     for msg in mensagens:
         is_me = msg['usuario_nome'] == nome_formatado_logado
         avatar = "🟢" if is_me else "👤"
@@ -163,7 +167,6 @@ with col_chat:
             st.markdown(f"**{msg['usuario_nome']}**")
             st.write(msg['texto'])
 
-    # Enviar mensagem
     if prompt := st.chat_input("Digite sua mensagem..."):
         if tipo_chat == "🏢 Canais de Setor":
             nova_msg = {
@@ -174,7 +177,7 @@ with col_chat:
             }
         else:
             nova_msg = {
-                "canal_id": 1, # Canal geral padrão para DMs
+                "canal_id": 1,
                 "usuario_nome": nome_formatado_logado,
                 "texto": prompt,
                 "destinatario_id": destinatario['id']
@@ -185,7 +188,6 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas")
     
-    # Exibir tarefas do setor se estiver em canal, ou tarefas gerais se em DM
     c_id_tarefa = canal_id if canal_id else 1
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
     tarefas = tarefas_res.data
