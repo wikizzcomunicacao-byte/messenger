@@ -182,16 +182,13 @@ if total_geral_nao_lidas > 0:
                     st.session_state["notificacoes_fechadas"].add(m_id)
                     st.rerun()
             
-            # Caixa de resposta rápida direto no mini-chat
             resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
             if resposta_mini:
                 try:
                     canal_id_env = mn.get("canal_id")
                     dest_id_env = mn.get("destinatario_id")
                     
-                    # Se for Mensagem Direta (DM), o destinatário da resposta deve ser o ID de quem enviou a mensagem original
                     if dest_id_env == usuario_atual['id']:
-                        # Descobre o ID do remetente original pelo nome
                         nome_remetente_original = rem.split("(")[0].strip()
                         autor_msg = next((u for u in todos_usuarios if u['nome'].replace("*", "").strip() == nome_remetente_original), None)
                         novo_dest_id = autor_msg['id'] if autor_msg else None
@@ -208,7 +205,6 @@ if total_geral_nao_lidas > 0:
                         "leituras_confirmadas": [usuario_atual['id']]
                     }).execute()
                     
-                    # Marca a mensagem como lida e fecha o mini-chat
                     leituras = mn.get("leituras_confirmadas") or []
                     if usuario_atual['id'] not in leituras:
                         leituras.append(usuario_atual['id'])
@@ -245,17 +241,18 @@ if usuario_atual.get("eh_admin"):
 tipo_chat = st.sidebar.radio("Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN)
+# TELA: PAINEL DE GESTÃO (ADMIN) COM OPÇÃO DE EDITAR
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Admin":
     st.title("⚙️ Gestão de Usuários e Sistema")
     col_cad, col_lista = st.columns(2)
     
+    setores_existentes = ["licitacao", "compras", "financeiro", "farmaceutica", "estoque", "faturamento-pedidos", "cotacao", "loja-online", "geral"]
+
     with col_cad:
         st.subheader("➕ Cadastrar Colaborador")
         with st.form("form_novo_usuario"):
             novo_nome = st.text_input("Nome Completo:")
-            setores_existentes = ["licitacao", "compras", "financeiro", "farmaceutica", "estoque", "faturamento-pedidos", "cotacao", "loja-online", "geral"]
             novo_setor = st.selectbox("Setor:", setores_existentes)
             nova_senha = st.text_input("Senha:", value="123456")
             h_inicio = st.number_input("Início Expediente:", value=7, min_value=0, max_value=23)
@@ -275,17 +272,56 @@ if tipo_chat == "⚙️ Admin":
                         st.error(f"Erro ao cadastrar: {e}")
 
     with col_lista:
-        st.subheader("👥 Usuários")
+        st.subheader("👥 Usuários & Gerenciamento")
         for u in todos_usuarios:
             with st.container(border=True):
                 st.markdown(f"**{u['nome']}** ({u['setor']})")
-                if u['id'] != usuario_atual['id']:
-                    if st.button("❌ Remover", key=f"del_u_{u['id']}"):
-                        try:
-                            supabase.table("usuarios").delete().eq("id", u['id']).execute()
-                            st.rerun()
-                        except:
-                            pass
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    # Botão para expandir a edição
+                    if st.button("✏️ Editar", key=f"edit_toggle_{u['id']}"):
+                        st.session_state[f"editando_{u['id']}"] = not st.session_state.get(f"editando_{u['id']}", False)
+                with col_btn2:
+                    if u['id'] != usuario_atual['id']:
+                        if st.button("❌ Remover", key=f"del_u_{u['id']}"):
+                            try:
+                                supabase.table("usuarios").delete().eq("id", u['id']).execute()
+                                st.rerun()
+                            except:
+                                pass
+                
+                # Formulário de Edição Inline se ativado
+                if st.session_state.get(f"editando_{u['id']}", False):
+                    with st.form(f"form_edit_{u['id']}"):
+                        st.markdown("---")
+                        st.markdown(f"**Editando: {u['nome']}**")
+                        ed_nome = st.text_input("Nome Completo:", value=u['nome'], key=f"n_{u['id']}")
+                        
+                        idx_setor = setores_existentes.index(u['setor']) if u['setor'] in setores_existentes else 0
+                        ed_setor = st.selectbox("Setor:", setores_existentes, index=idx_setor, key=f"s_{u['id']}")
+                        
+                        ed_senha = st.text_input("Senha:", value=u.get('senha', '123456'), key=f"p_{u['id']}")
+                        ed_h_inicio = st.number_input("Início Expediente:", value=int(u.get('hora_inicio_expediente', 7)), min_value=0, max_value=23, key=f"hi_{u['id']}")
+                        ed_h_fim = st.number_input("Fim Expediente:", value=int(u.get('hora_fim_expediente', 22)), min_value=0, max_value=23, key=f"hf_{u['id']}")
+                        ed_admin = st.checkbox("Administrador", value=u.get('eh_admin', False), key=f"adm_{u['id']}")
+                        
+                        if st.form_submit_button("Salvar Alterações"):
+                            try:
+                                supabase.table("usuarios").update({
+                                    "nome": ed_nome,
+                                    "setor": ed_setor,
+                                    "senha": ed_senha,
+                                    "hora_inicio_expediente": ed_h_inicio,
+                                    "hora_fim_expediente": ed_h_fim,
+                                    "eh_admin": ed_admin
+                                }).eq("id", u['id']).execute()
+                                
+                                st.session_state[f"editando_{u['id']}"] = False
+                                st.success("Atualizado com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao atualizar: {e}")
     st.stop()
 
 # ---------------------------------------------------------
