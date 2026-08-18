@@ -1,5 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
+from datetime import datetime, timedelta, timezone
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
@@ -62,6 +63,7 @@ if not st.session_state["autenticado"]:
 # APLICATIVO LIBERADO APÓS LOGIN
 # ---------------------------------------------------------
 usuario_atual = st.session_state["usuario_logado"]
+todos_usuarios = buscar_usuarios()
 
 # PALETAS DE CORES
 PALETAS = {
@@ -124,7 +126,6 @@ tipo_chat = st.sidebar.radio("Modo de Conversa:", ["🏢 Canais de Setor", "👤
 canal_id = None
 destinatario = None
 membros_canal = []
-todos_usuarios = buscar_usuarios()
 
 if tipo_chat == "🏢 Canais de Setor":
     def obter_canais():
@@ -138,7 +139,6 @@ if tipo_chat == "🏢 Canais de Setor":
     canal_id = obj_canal['id']
     canal_nome_limpo = obj_canal['nome']
     
-    # Filtrar membros deste setor ou do canal geral
     if canal_nome_limpo == "geral":
         membros_canal = todos_usuarios
     else:
@@ -167,6 +167,7 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
+    # Buscar e processar limpeza de mensagens expiradas
     if tipo_chat == "🏢 Canais de Setor":
         mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
         mensagens = mensagens_res.data
@@ -175,30 +176,74 @@ with col_chat:
         res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
         mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
+    # EXIBIÇÃO E EXPIRAÇÃO DE MENSAGENS
+    agora = datetime.now(timezone.utc)
     for msg in mensagens:
+        # Verificar se mensagem temporária expirou
+        if msg.get("tempo_expiracao_minutos"):
+            criado_em = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
+            expira_em = criado_em + timedelta(minutes=msg["tempo_expiracao_minutos"])
+            if agora > expira_em:
+                supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
+                st.rerun()
+
         is_me = msg['usuario_nome'] == nome_formatado_logado
-        avatar = "🟢" if is_me else "👤"
+        avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
+        
         with st.chat_message("user", avatar=avatar):
+            if msg.get("eh_comunicado"):
+                st.warning("📌 **COMUNICADO OFICIAL**")
+            
             st.markdown(f"**{msg['usuario_nome']}**")
             st.write(msg['texto'])
 
-    if prompt := st.chat_input("Digite sua mensagem..."):
-        if tipo_chat == "🏢 Canais de Setor":
+            # Lógica do Comunicado Oficial (Botão de Leitura e Contador)
+            if msg.get("eh_comunicado"):
+                leituras = msg.get("leituras_confirmadas") or []
+                total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
+                
+                if usuario_atual['id'] not in leituras:
+                    if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
+                        leituras.append(usuario_atual['id'])
+                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
+                        st.rerun()
+                else:
+                    st.caption("✔️ Você já confirmou leitura deste comunicado.")
+                
+                st.progress(len(leituras) / max(total_alvo, 1))
+                st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores leram.")
+
+            if msg.get("tempo_expiracao_minutos"):
+                st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
+
+    # ENVIAR NOVA MENSAGEM
+    with st.container():
+        prompt = st.chat_input("Digite sua mensagem...")
+        
+        col_opt1, col_opt2 = st.columns(2)
+        with col_opt1:
+            eh_comunicado = st.checkbox("📌 Marcar como Comunicado Oficial")
+        with col_opt2:
+            expiracao_opcao = st.selectbox("⏱️ Autodestruição:", ["Desativada", "5 minutos", "60 minutos"])
+
+        minutos_expira = None
+        if expiracao_opcao == "5 minutos":
+            minutos_expira = 5
+        elif expiracao_opcao == "60 minutos":
+            minutos_expira = 60
+
+        if prompt:
             nova_msg = {
-                "canal_id": canal_id,
+                "canal_id": canal_id if canal_id else 1,
                 "usuario_nome": nome_formatado_logado,
                 "texto": prompt,
-                "destinatario_id": None
+                "destinatario_id": destinatario['id'] if destinatario else None,
+                "eh_comunicado": eh_comunicado,
+                "tempo_expiracao_minutos": minutos_expira,
+                "leituras_confirmadas": []
             }
-        else:
-            nova_msg = {
-                "canal_id": 1,
-                "usuario_nome": nome_formatado_logado,
-                "texto": prompt,
-                "destinatario_id": destinatario['id']
-            }
-        supabase.table("mensagens").insert(nova_msg).execute()
-        st.rerun()
+            supabase.table("mensagens").insert(nova_msg).execute()
+            st.rerun()
 
 with col_tarefas:
     st.subheader("📋 Tarefas do Grupo")
@@ -207,7 +252,6 @@ with col_tarefas:
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
-    # Identificar IDs dos usuários que são membros do grupo atual
     ids_membros_grupo = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
     
     for tarefa in tarefas:
@@ -219,7 +263,6 @@ with col_tarefas:
             
             if tarefa['status'] != "Concluído":
                 if st.button("Marcar Concluída", key=f"t_{tarefa['id']}"):
-                    # REGRA: O usuário logado deve ser membro do grupo OU o responsável direto
                     eh_membro = usuario_atual['id'] in ids_membros_grupo
                     eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
                     
@@ -232,7 +275,6 @@ with col_tarefas:
 
     with st.expander("+ Criar Nova Tarefa"):
         nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
-        
         opcoes_membros = ["Todos do Setor"] + [u['nome'] for u in (membros_canal if membros_canal else todos_usuarios)]
         responsavel_sel = st.selectbox("Atribuir a integrante:", opcoes_membros)
         
