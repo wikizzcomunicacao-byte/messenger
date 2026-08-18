@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
+import streamlit.components.v1 as components
 import pytz
 
 # Configuração da página - Barra lateral fixa
@@ -131,7 +132,7 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO PARA ROLAGEM AUTOMÁTICA E LAYOUT LIMPO
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -141,15 +142,6 @@ st.markdown(f"""
         [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
-        
-        /* Área de mensagens com rolagem interna automática */
-        .chat-scroll-area {{
-            max-height: 520vh;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            padding-bottom: 20px;
-        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -248,7 +240,7 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    # Container com altura controlada e scroll interno para as mensagens rolarem sozinhas
+    # Container com altura controlada e scroll interno
     with st.container(height=480):
         @st.fragment(run_every=3)
         def renderizar_mensagens():
@@ -296,8 +288,22 @@ with col_chat:
                             st.rerun()
 
         renderizar_mensagens()
+        
+        # SCRIPT JAVASCRIPT PARA ROLAR O CHAT AUTOMATICAMENTE ATÉ O FINAL
+        components.html("""
+            <script>
+                const chatContainer = window.parent.document.querySelectorAll('[data-testid="stVerticalBlock"]');
+                for (let el of chatContainer) {
+                    if (el.scrollHeight > el.clientHeight) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                }
+                const scrollables = window.parent.document.querySelectorAll('[data-testid="stExpander"] + div, div[style*="overflow: auto"]');
+                scrollables.forEach(s => s.scrollTop = s.scrollHeight);
+            </script>
+        """, height=0, width=0)
     
-    # Campo nativo de chat do Streamlit (Fixo no rodapé da coluna, envia com Enter, sem botão de foguete)
+    # Campo nativo de chat (Fixo no rodapé, envia com Enter, sem botões extras)
     prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_chat_principal")
     
     if prompt:
