@@ -101,27 +101,14 @@ usuario_atual = st.session_state["usuario_logado"]
 todos_usuarios = buscar_usuarios()
 nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-# PALETAS DE CORES
-PALETAS = {
-    "🟢 Escuro Padrão (WhatsApp)": {
-        "bg_app": "#0b141a", "bg_sidebar": "#111b21", "bg_msg": "#202c33", "primary": "#00a884", "text": "#e9edef"
-    },
-    "🔵 Azul Corporativo (Slack)": {
-        "bg_app": "#0f172a", "bg_sidebar": "#1e293b", "bg_msg": "#334155", "primary": "#3b82f6", "text": "#f8fafc"
-    },
-    "🟣 Roxo Noturno (Discord)": {
-        "bg_app": "#18181b", "bg_sidebar": "#27272a", "bg_msg": "#3f3f46", "primary": "#a855f7", "text": "#fafafa"
-    },
-    "🟠 Grafite & Laranja": {
-        "bg_app": "#121212", "bg_sidebar": "#1e1e1e", "bg_msg": "#2d2d2d", "primary": "#f97316", "text": "#f3f4f6"
-    },
-    "⚪ Claro Corporativo": {
-        "bg_app": "#f8fafc", "bg_sidebar": "#f1f5f9", "bg_msg": "#ffffff", "primary": "#0284c7", "text": "#0f172a"
-    }
+# TEMA FIXO: ESCURO PADRÃO (WHATSAPP)
+p = {
+    "bg_app": "#0b141a", 
+    "bg_sidebar": "#111b21", 
+    "bg_msg": "#202c33", 
+    "primary": "#00a884", 
+    "text": "#e9edef"
 }
-
-tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
-p = PALETAS[tema_escolhido]
 
 # CSS DINÂMICO
 st.markdown(f"""
