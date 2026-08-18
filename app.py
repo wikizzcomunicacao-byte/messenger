@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página
+# Configuração da página em modo estendido
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
 # 1. CONEXÃO COM O SUPABASE
@@ -17,7 +17,7 @@ except Exception as e:
     st.error("⚠️ Conexão pendente: Configure as chaves SUPABASE_URL e SUPABASE_KEY nos Secrets do Streamlit.")
     st.stop()
 
-# 2. PALETAS DE CORES
+# 2. PALETAS DE CORES (5 OPÇÕES)
 PALETAS = {
     "🟢 Escuro Padrão (WhatsApp)": {
         "bg_app": "#0b141a", "bg_sidebar": "#111b21", "bg_msg": "#202c33", "primary": "#00a884", "text": "#e9edef"
@@ -36,7 +36,7 @@ PALETAS = {
     }
 }
 
-# 3. SELETOR DE TEMA
+# 3. SELETOR DE TEMAS NA BARRA LATERAL
 st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
@@ -51,6 +51,7 @@ st.markdown(f"""
         [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
+        .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -67,22 +68,25 @@ if nome_input:
 else:
     st.sidebar.warning("Digite seu nome acima para poder enviar mensagens.")
 
-# 6. CARREGAMENTO DE CANAIS DO SUPABASE
+# 6. CARREGAMENTO DOS CANAIS DO SUPABASE
 st.sidebar.divider()
 st.sidebar.title("🏢 Canais por Setor")
 
-@st.cache_data(ttl=10)
 def obter_canais():
     res = supabase.table("canais").select("*").order("id").execute()
     return res.data
 
 try:
     lista_canais = obter_canais()
+    if not lista_canais:
+        st.sidebar.warning("Nenhum canal encontrado na tabela 'canais'.")
+        st.stop()
+        
     mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
     canal_selecionado = st.sidebar.radio("Selecione a sala:", list(mapa_canais.keys()))
     canal_id = mapa_canais[canal_selecionado]
 except Exception as e:
-    st.sidebar.error("Erro ao carregar os canais do banco de dados.")
+    st.sidebar.error(f"Erro ao conectar com o Supabase: {e}")
     st.stop()
 
 # 7. INTERFACE PRINCIPAL (CHAT E TAREFAS)
