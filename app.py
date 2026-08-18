@@ -42,6 +42,8 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -131,7 +133,7 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO PARA ISOLAR O INPUT NA COLUNA DO CHAT
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -141,6 +143,14 @@ st.markdown(f"""
         [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
+        
+        /* Fixa o container de envio no final da coluna de chat */
+        .chat-container {{
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            justify-content: space-between;
+        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -239,56 +249,64 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    @st.fragment(run_every=3)
-    def renderizar_mensagens():
-        if tipo_chat == "🏢 Canais de Setor":
-            mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
-        else:
-            res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
-            res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
-            mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
+    # Área de rolagem para as mensagens (com altura fixa e scroll interno)
+    with st.container(height=500):
+        @st.fragment(run_every=3)
+        def renderizar_mensagens():
+            if tipo_chat == "🏢 Canais de Setor":
+                mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
+            else:
+                res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
+                res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
+                mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-        for msg in mensagens:
-            is_me = msg['usuario_nome'] == nome_formatado_logado
-            avatar = "🟢" if is_me else "👤"
-            
-            hora_formatada = ""
-            if msg.get("criado_em"):
-                try:
-                    dt_local = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
-                    hora_formatada = dt_local.strftime("%H:%M")
-                except:
-                    pass
+            for msg in mensagens:
+                is_me = msg['usuario_nome'] == nome_formatado_logado
+                avatar = "🟢" if is_me else "👤"
+                
+                hora_formatada = ""
+                if msg.get("criado_em"):
+                    try:
+                        dt_local = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
+                        hora_formatada = dt_local.strftime("%H:%M")
+                    except:
+                        pass
 
-            with st.chat_message("user", avatar=avatar):
-                col_nome, col_hora = st.columns([5, 1])
-                with col_nome:
-                    st.markdown(f"**{msg['usuario_nome']}**")
-                with col_hora:
-                    if hora_formatada:
-                        st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
+                with st.chat_message("user", avatar=avatar):
+                    col_nome, col_hora = st.columns([5, 1])
+                    with col_nome:
+                        st.markdown(f"**{msg['usuario_nome']}**")
+                    with col_hora:
+                        if hora_formatada:
+                            st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
 
-                if msg.get('texto'):
-                    st.write(msg['texto'])
+                    if msg.get('texto'):
+                        st.write(msg['texto'])
 
-                if msg.get("arquivo_url"):
-                    url_arq = msg.get("arquivo_url")
-                    nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
-                    st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
+                    if msg.get("arquivo_url"):
+                        url_arq = msg.get("arquivo_url")
+                        nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
+                        st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
 
-                if not is_me:
-                    st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
+                    if not is_me:
+                        st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
 
-                if usuario_atual.get("eh_admin"):
-                    if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
-                        supabase.table("mensagens").delete().eq("id", msg['id']).execute()
-                        st.rerun()
+                    if usuario_atual.get("eh_admin"):
+                        if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
+                            supabase.table("mensagens").delete().eq("id", msg['id']).execute()
+                            st.rerun()
 
-    renderizar_mensagens()
+        renderizar_mensagens()
     
-    # O st.chat_input fica fixo automaticamente no rodapé da página/coluna
-    prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_principal")
-    if prompt:
+    # Campo de envio fixo logo abaixo da área de mensagens da coluna do chat
+    with st.form(key="form_envio_chat_fixo", clear_on_submit=True):
+        col_inp, col_btn = st.columns([5, 1])
+        with col_inp:
+            prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem e aperte Enter...", key="input_texto_msg", label_visibility="collapsed")
+        with col_btn:
+            btn_enviar = st.form_submit_button("🚀 Enviar", use_container_width=True)
+
+    if btn_enviar and prompt:
         supabase.table("mensagens").insert({
             "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else None,
             "usuario_nome": nome_formatado_logado,
