@@ -142,15 +142,16 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO GLOBAL DE NÃO LIDAS PARA O ÍCONE DE NOTIFICAÇÃO NO TOPO
+# CÁLCULO GLOBAL DE NÃO LIDAS (EXCLUINDO AS PRÓPRIAS MENSAGENS)
 # ---------------------------------------------------------
 total_geral_nao_lidas = 0
 try:
     todas_as_msgs = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
     for m in todas_as_msgs:
-        if m.get("usuario_nome") != nome_formatado_logado:
+        remetente = m.get("usuario_nome", "")
+        # Ignora mensagens enviadas pelo próprio usuário logado
+        if not remetente.startswith(usuario_atual['nome']):
             dest_id = m.get("destinatario_id")
-            # Se for DM direcionada a mim ou mensagem geral de canal
             if dest_id is None or dest_id == usuario_atual['id']:
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
@@ -233,7 +234,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES NA BARRA LATERAL
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES CORRIGIDOS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -250,7 +251,8 @@ if tipo_chat == "🏢 Canais de Setor":
         
         nao_lidas = 0
         for m in msgs_canal:
-            if m.get("usuario_nome") != nome_formatado_logado:
+            remetente = m.get("usuario_nome", "")
+            if not remetente.startswith(usuario_atual['nome']):
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     nao_lidas += 1
@@ -272,13 +274,15 @@ else:
     
     mapa_dms = {}
     for u in outros:
-        dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas").eq("usuario_nome", f"{u['nome']} ({u['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
+        dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("destinatario_id", usuario_atual['id']).execute().data or []
         
         qtd_dm = 0
         for m in dm_nao_lidas:
-            leituras = m.get("leituras_confirmadas") or []
-            if usuario_atual['id'] not in leituras:
-                qtd_dm += 1
+            remetente = m.get("usuario_nome", "")
+            if remetente.startswith(u['nome']):
+                leituras = m.get("leituras_confirmadas") or []
+                if usuario_atual['id'] not in leituras:
+                    qtd_dm += 1
 
         badge_dm = f" 🟢 {qtd_dm}" if qtd_dm > 0 else ""
         label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
@@ -292,7 +296,6 @@ else:
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
-    # Cabeçalho do Chat com indicador de notificação se houver mensagens novas
     if total_geral_nao_lidas > 0:
         st.markdown(f"### 🔔 {titulo_chat} <span style='font-size: 0.6em; background-color: #25d366; color: black; padding: 2px 8px; border-radius: 10px;'>{total_geral_nao_lidas} novas mensagens</span>", unsafe_allow_html=True)
     else:
@@ -307,8 +310,9 @@ with col_chat:
             
             if qtd_atual > st.session_state["ultima_qtd_msgs"]:
                 ultima_msg = todas_atuais[-1]
-                if ultima_msg.get("usuario_nome") != nome_formatado_logado:
-                    st.toast(f"🔔 Nova mensagem de {ultima_msg.get('usuario_nome', 'Alguém')}!", icon="💬")
+                remetente_ult = ultima_msg.get("usuario_nome", "")
+                if not remetente_ult.startswith(usuario_atual['nome']):
+                    st.toast(f"🔔 Nova mensagem de {remetente_ult}!", icon="💬")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
             if tipo_chat == "🏢 Canais de Setor":
@@ -322,7 +326,8 @@ with col_chat:
                 mensagens = sorted(list(todas_mensagens.values()), key=lambda x: x['criado_em'])
 
             for msg in mensagens:
-                is_me = msg['usuario_nome'] == nome_formatado_logado or msg['usuario_nome'].startswith(usuario_atual['nome'])
+                remetente_msg = msg.get("usuario_nome", "")
+                is_me = remetente_msg.startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
                 leituras = msg.get("leituras_confirmadas") or []
@@ -344,7 +349,7 @@ with col_chat:
                 with st.chat_message("user", avatar=avatar):
                     col_nome, col_hora = st.columns([5, 1])
                     with col_nome:
-                        st.markdown(f"**{msg['usuario_nome']}**")
+                        st.markdown(f"**{remetente_msg}**")
                     with col_hora:
                         if hora_formatada:
                             st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
@@ -391,7 +396,6 @@ with col_chat:
             </script>
         """, height=0, width=0)
     
-    # Campo nativo de chat (Fixo no rodapé, envia com Enter, sem botões extras)
     prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_chat_principal")
     
     if prompt:
@@ -400,7 +404,7 @@ with col_chat:
             "usuario_nome": nome_formatado_logado,
             "texto": prompt,
             "destinatario_id": destinatario['id'] if tipo_chat == "👤 Mensagens Diretas (DM)" else None,
-            "leituras_confirmadas": []
+            "leituras_confirmadas": [usuario_atual['id']]
         }).execute()
         st.rerun()
 
