@@ -23,7 +23,20 @@ except Exception as e:
     st.error("⚠️ Erro de conexão com o Supabase.")
     st.stop()
 
-# 2. GERENCIAMENTO DE SESSÃO / LOGIN
+# 2. FUNÇÃO DE REGISTRO DE LOGS DE AUDITORIA
+def registrar_log(usuario_id, usuario_nome, setor, acao, detalhes=""):
+    try:
+        supabase.table("logs_acesso").insert({
+            "usuario_id": usuario_id,
+            "usuario_nome": usuario_nome,
+            "setor": setor,
+            "acao": acao,
+            "detalhes": detalhes
+        }).execute()
+    except Exception:
+        pass  # Evita interrupção caso a tabela ainda não tenha sido criada
+
+# 3. GERENCIAMENTO DE SESSÃO / LOGIN
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
@@ -53,6 +66,7 @@ if not st.session_state["autenticado"]:
                 if senha_input == dados_usuario.get("senha", "123456"):
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = dados_usuario
+                    registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", "Acesso ao sistema realizado com sucesso")
                     st.success("Login realizado com sucesso!")
                     st.rerun()
                 else:
@@ -92,6 +106,7 @@ if usuario_atual.get("eh_admin"):
     st.sidebar.success("👑 Administrador do Sistema")
 
 if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
+    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Usuário encerrou a sessão")
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
     st.rerun()
@@ -121,16 +136,17 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# SELEÇÃO DE MODOS (INCLUI OPÇÃO DE ADMIN SE O USUÁRIO FOR ADMIN)
+# OPÇÕES DE MODO NAVEGAÇÃO
 st.sidebar.divider()
 opcoes_modo = ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"]
 if usuario_atual.get("eh_admin"):
     opcoes_modo.append("⚙️ Painel de Gestão (Admin)")
+    opcoes_modo.append("📊 Relatórios e Logs (Admin)")
 
 tipo_chat = st.sidebar.radio("Modo de Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA 1: PAINEL EXCLUSIVO DO ADMINISTRADOR
+# TELA 1: PAINEL DE USUÁRIOS (ADMIN)
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Painel de Gestão (Admin)":
     st.title("⚙️ Gestão de Usuários (Administração)")
@@ -156,6 +172,7 @@ if tipo_chat == "⚙️ Painel de Gestão (Admin)":
                         "senha": nova_senha,
                         "eh_admin": e_admin
                     }).execute()
+                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CRIAR_USUARIO", f"Cadastrou o usuário {novo_nome}")
                     st.success(f"Usuário '{novo_nome}' cadastrado com sucesso!")
                     st.rerun()
                 else:
@@ -174,12 +191,66 @@ if tipo_chat == "⚙️ Painel de Gestão (Admin)":
                     if u['id'] != usuario_atual['id']:
                         if st.button("❌", key=f"del_u_{u['id']}"):
                             supabase.table("usuarios").delete().eq("id", u['id']).execute()
+                            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_USUARIO", f"Removeu o usuário ID {u['id']}")
                             st.success("Removido!")
                             st.rerun()
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 2: CHAT E TAREFAS (MODO NORMAL)
+# TELA 2: RELATÓRIOS E LOGS DE ACESSO (EXCLUSIVO ADMIN)
+# ---------------------------------------------------------
+if tipo_chat == "📊 Relatórios e Logs (Admin)":
+    st.title("📊 Relatórios de Uso e Controle de Logs")
+    st.caption("Painel restrito para auditoria e monitoramento de atividades dos colaboradores.")
+
+    # MÉTIRCAS GERAIS
+    total_users = len(todos_usuarios)
+    msgs_totais = len(supabase.table("mensagens").select("id", count="exact").execute().data or [])
+    tarefas_totais = len(supabase.table("tarefas").select("id", count="exact").execute().data or [])
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("👥 Total de Colaboradores", total_users)
+    c2.metric("💬 Total de Mensagens", msgs_totais)
+    c3.metric("📋 Total de Tarefas Registradas", tarefas_totais)
+
+    st.divider()
+
+    # AUDITORIA E LOGS DE ACESSO
+    st.subheader("📋 Histórico de Logs de Auditoria")
+    
+    logs_res = supabase.table("logs_acesso").select("*").order("criado_em", desc=True).limit(100).execute()
+    logs_data = logs_res.data if logs_res.data else []
+
+    busca_log = st.text_input("🔍 Filtrar logs por nome, setor ou ação:")
+    
+    if logs_data:
+        logs_filtrados = [
+            l for l in logs_data 
+            if busca_log.lower() in str(l.get('usuario_nome', '')).lower() 
+            or busca_log.lower() in str(l.get('acao', '')).lower()
+            or busca_log.lower() in str(l.get('setor', '')).lower()
+        ]
+
+        # Tabela formatada
+        st.dataframe(
+            logs_filtrados,
+            column_config={
+                "criado_em": "Data/Hora",
+                "usuario_nome": "Colaborador",
+                "setor": "Setor",
+                "acao": "Ação Realizada",
+                "detalhes": "Detalhes"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("Nenhum registro de log encontrado até o momento.")
+
+    st.stop()
+
+# ---------------------------------------------------------
+# TELA 3: CHAT E TAREFAS (MODO NORMAL)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -264,6 +335,7 @@ with col_chat:
                         if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
                             leituras.append(usuario_atual['id'])
                             supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
+                            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONFIRMAR_LEITURA", f"Confirmou leitura da mensagem ID {msg['id']}")
                             st.rerun()
                     else:
                         st.caption("🔒 *Apenas colaboradores pertencentes a este setor podem confirmar leitura.*")
@@ -279,6 +351,7 @@ with col_chat:
             if usuario_atual.get("eh_admin"):
                 if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
                     supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
+                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
     with st.container():
@@ -307,6 +380,7 @@ with col_chat:
                 "leituras_confirmadas": []
             }
             supabase.table("mensagens").insert(nova_msg).execute()
+            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
             st.rerun()
 
 with col_tarefas:
@@ -332,6 +406,7 @@ with col_tarefas:
                     
                     if eh_membro or eh_responsavel or usuario_atual.get("eh_admin"):
                         supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
+                        registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONCLUIR_TAREFA", f"Concluiu a tarefa ID {tarefa['id']}")
                         st.success("Tarefa concluída!")
                         st.rerun()
                     else:
@@ -350,4 +425,5 @@ with col_tarefas:
                     "atribuido_a": responsavel_sel,
                     "status": "Pendente"
                 }).execute()
+                registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CRIAR_TAREFA", f"Criou tarefa '{nova_tarefa_titulo}'")
                 st.rerun()
