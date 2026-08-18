@@ -359,7 +359,7 @@ with col_chat:
                 elif "audio" in tipo_arq:
                     st.audio(url_arq)
                 else:
-                    st.markdown(f"📎 [Baixar / Visualizar Arquivo]({url_arq})")
+                    st.markdown(f"📎 [Baixar / Visualizar Arquivo PDF/Documento]({url_arq})")
 
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
@@ -392,7 +392,7 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM / ANEXO (UPLOAD FORA DO FORM PARA PRESERVAR OS BYTES DO PDF)
+    # ENVIAR NOVA MENSAGEM
     with st.expander("📎 Anexar Arquivo (PDF, Imagem, Documento, Áudio)"):
         arquivo_enviado = st.file_uploader(
             "Selecione o arquivo do seu computador:", 
@@ -418,15 +418,17 @@ with col_chat:
 
             if arquivo_enviado is not None:
                 try:
-                    nome_arquivo = f"{int(datetime.now().timestamp())}_{arquivo_enviado.name}"
+                    # Gera um identificador único de timestamp
+                    timestamp_atual = int(datetime.now().timestamp())
+                    nome_arquivo = f"{timestamp_atual}_{arquivo_enviado.name}"
                     bytes_data = arquivo_enviado.getvalue()
-                    content_type = arquivo_enviado.type or "application/octet-stream"
-                    
-                    # Upload para o Supabase Storage garantindo o Content-Type exato
+                    content_type = arquivo_enviado.type or "application/pdf"
+
+                    # Upload com permissão de substituição (upsert=true) e Content-Type explícito
                     supabase.storage.from_("anexos").upload(
                         path=nome_arquivo, 
                         file=bytes_data, 
-                        file_options={"content-type": content_type}
+                        file_options={"content-type": content_type, "upsert": "true"}
                     )
                     url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
                     tipo_arquivo = content_type
