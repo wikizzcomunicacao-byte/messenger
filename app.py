@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página - Barra lateral expandida por padrão
+# Configuração da página - Barra lateral fixa
 st.set_page_config(
     page_title="Chat Corporativo", 
     page_icon="💬", 
@@ -98,7 +98,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO (INCLUI BLOQUEIO DO BOTÃO DE RECOLHER)
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -110,7 +110,6 @@ st.markdown(f"""
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
         
-        /* Oculta os botões de recolher e expandir a barra lateral */
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
             display: none !important;
@@ -124,6 +123,8 @@ tipo_chat = st.sidebar.radio("Modo de Conversa:", ["🏢 Canais de Setor", "👤
 
 canal_id = None
 destinatario = None
+membros_canal = []
+todos_usuarios = buscar_usuarios()
 
 if tipo_chat == "🏢 Canais de Setor":
     def obter_canais():
@@ -131,13 +132,27 @@ if tipo_chat == "🏢 Canais de Setor":
         return res.data
     
     lista_canais = obter_canais()
-    mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
-    canal_selecionado = st.sidebar.radio("Selecione o canal:", list(mapa_canais.keys()))
-    canal_id = mapa_canais[canal_selecionado]
-    titulo_chat = f"Conversa em {canal_selecionado}"
+    mapa_canais = {f"{c['icone']} #{c['nome']}": c for c in lista_canais}
+    canal_nome_sel = st.sidebar.radio("Selecione o canal:", list(mapa_canais.keys()))
+    obj_canal = mapa_canais[canal_nome_sel]
+    canal_id = obj_canal['id']
+    canal_nome_limpo = obj_canal['nome']
+    
+    # Filtrar membros deste setor ou do canal geral
+    if canal_nome_limpo == "geral":
+        membros_canal = todos_usuarios
+    else:
+        membros_canal = [u for u in todos_usuarios if u['setor'].lower() in canal_nome_limpo.lower()]
+    
+    st.sidebar.caption(f"👥 **Integrantes do Canal ({len(membros_canal)}):**")
+    for m in membros_canal[:5]:
+        st.sidebar.text(f"• {m['nome']}")
+    if len(membros_canal) > 5:
+        st.sidebar.caption(f"...e mais {len(membros_canal)-5} pessoas")
+        
+    titulo_chat = f"Conversa em {canal_nome_sel}"
 
 else:
-    todos_usuarios = buscar_usuarios()
     outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
     mapa_dms = {f"👤 {u['nome']} ({u['setor']})": u for u in outros_usuarios}
     
@@ -186,7 +201,7 @@ with col_chat:
         st.rerun()
 
 with col_tarefas:
-    st.subheader("📋 Tarefas")
+    st.subheader("📋 Tarefas do Grupo")
     
     c_id_tarefa = canal_id if canal_id else 1
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
@@ -206,13 +221,17 @@ with col_tarefas:
 
     with st.expander("+ Criar Nova Tarefa"):
         nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
-        responsavel = st.text_input("Atribuir a:", placeholder="Ex: Ana / Compras")
+        
+        # Opções de membros para atribuir a tarefa
+        opcoes_membros = ["Todos do Setor"] + [u['nome'] for u in (membros_canal if membros_canal else todos_usuarios)]
+        responsavel_sel = st.selectbox("Atribuir a integrante:", opcoes_membros)
+        
         if st.button("Salvar Tarefa"):
             if nova_tarefa_titulo:
                 supabase.table("tarefas").insert({
                     "canal_id": c_id_tarefa,
                     "titulo": nova_tarefa_titulo,
-                    "atribuido_a": responsavel,
+                    "atribuido_a": responsavel_sel,
                     "status": "Pendente"
                 }).execute()
                 st.rerun()
