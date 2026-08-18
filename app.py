@@ -43,6 +43,8 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
+if "ultima_qtd_msgs" not in st.session_state:
+    st.session_state["ultima_qtd_msgs"] = 0
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -83,6 +85,9 @@ if not st.session_state["autenticado"]:
                 elif senha_input == dados_usuario.get("senha", "123456"):
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = dados_usuario
+                    # Inicializa contagem de mensagens no login
+                    tot_msgs = supabase.table("mensagens").select("id", count="exact").execute().data or []
+                    st.session_state["ultima_qtd_msgs"] = len(tot_msgs)
                     registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", f"Login às {agora_local.strftime('%H:%M')}")
                     st.success("Login realizado com sucesso!")
                     st.rerun()
@@ -132,7 +137,7 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO COM ESTILO PARA OS BALÕES DE NOTIFICAÇÃO
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -142,18 +147,6 @@ st.markdown(f"""
         [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
-        
-        /* Estilo elegante para o balão de mensagens não lidas */
-        .unread-badge {{
-            background-color: #25d366;
-            color: #000000;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            font-weight: bold;
-            margin-left: 6px;
-            display: inline-block;
-        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -219,7 +212,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES OTIMIZADOS
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM NOTIFICAÇÕES POPUP (TOAST)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -287,6 +280,16 @@ with col_chat:
     with st.container(height=480):
         @st.fragment(run_every=3)
         def renderizar_mensagens():
+            # Verificação de novas mensagens para disparar Popup Toast
+            todas_atuais = supabase.table("mensagens").select("id, usuario_nome").execute().data or []
+            qtd_atual = len(todas_atuais)
+            
+            if qtd_atual > st.session_state["ultima_qtd_msgs"]:
+                ultima_msg = todas_atuais[-1]
+                if ultima_msg.get("usuario_nome") != nome_formatado_logado:
+                    st.toast(f"💬 Nova mensagem de {ultima_msg.get('usuario_nome', 'Alguém')}!", icon="🔔")
+                st.session_state["ultima_qtd_msgs"] = qtd_atual
+
             if tipo_chat == "🏢 Canais de Setor":
                 mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
             else:
