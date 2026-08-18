@@ -76,7 +76,7 @@ if not st.session_state["autenticado"]:
                 dados_usuario = mapa_usuarios[usuario_selecionado]
                 eh_admin = dados_usuario.get("eh_admin", False)
                 hora_inicio = dados_usuario.get("hora_inicio_expediente", 7)
-                hora_fim = dados_usuario.get("hora_fim_expediente", 19)
+                hora_fim = dados_usuario.get("hora_fim_expediente", 22)
 
                 fora_do_expediente = (hora_atual < hora_inicio or hora_atual >= hora_fim or dia_semana >= 5)
 
@@ -99,7 +99,8 @@ if not st.session_state["autenticado"]:
 # ---------------------------------------------------------
 usuario_atual = st.session_state["usuario_logado"]
 todos_usuarios = buscar_usuarios()
-nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
+nome_limpo_usuario = usuario_atual['nome'].replace("*", "").strip()
+nome_formatado_logado = f"{nome_limpo_usuario} ({usuario_atual['setor']})"
 
 # TEMA FIXO: ESCURO PADRÃO (WHATSAPP)
 p = {
@@ -129,17 +130,20 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS PARA O SININHO
+# CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS (RIGOROSO)
 # ---------------------------------------------------------
 mensagens_nao_lidas_detalhes = []
 total_geral_nao_lidas = 0
 try:
-    todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
+    # Busca apenas mensagens válidas que possuem canal_id ou destinatario_id correto
+    todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id, canal_id").execute().data or []
     for m in todas_as_msgs:
         remetente = m.get("usuario_nome", "")
-        if not remetente.startswith(usuario_atual['nome']):
+        if not remetente.startswith(nome_limpo_usuario):
             dest_id = m.get("destinatario_id")
-            if dest_id is None or dest_id == usuario_atual['id']:
+            canal_ref = m.get("canal_id")
+            # Conta apenas se for DM para mim ou mensagem de canal válida
+            if dest_id == usuario_atual['id'] or (canal_ref is not None and dest_id is None):
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     total_geral_nao_lidas += 1
@@ -147,11 +151,10 @@ try:
 except:
     pass
 
-# BARRA LATERAL - PERFIL
+# BARRA LATERAL - PERFIL LIMPO
 if total_geral_nao_lidas > 0:
-    st.sidebar.markdown(f"### 🔔 **{usuario_atual['nome']}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"🔔 **{nome_limpo_usuario}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
     
-    # EXPANSOR DO SININHO MOSTRANDO AS NOTIFICAÇÕES AO CLICAR
     with st.sidebar.expander("📌 Ver Notificações Pendentes"):
         for mn in mensagens_nao_lidas_detalhes:
             rem = mn.get("usuario_nome", "Alguém")
@@ -159,16 +162,16 @@ if total_geral_nao_lidas > 0:
             st.markdown(f"**{rem}**: {txt}")
             st.divider()
 else:
-    st.sidebar.title(f"👤 {usuario_atual['nome']}")
+    st.sidebar.title(f"👤 {nome_limpo_usuario}")
 
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
-st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 19)}h")
+st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 22)}h")
 
 if usuario_atual.get("eh_admin"):
     st.sidebar.success("👑 Administrador")
 
 if st.sidebar.button("🚪 Sair", use_container_width=True):
-    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
+    registrar_log(usuario_atual['id'], nome_limpo_usuario, usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
     st.rerun()
@@ -198,7 +201,7 @@ if tipo_chat == "⚙️ Admin":
             novo_setor = st.selectbox("Setor:", setores_existentes)
             nova_senha = st.text_input("Senha:", value="123456")
             h_inicio = st.number_input("Início Expediente:", value=7, min_value=0, max_value=23)
-            h_fim = st.number_input("Fim Expediente:", value=19, min_value=0, max_value=23)
+            h_fim = st.number_input("Fim Expediente:", value=22, min_value=0, max_value=23)
             e_admin = st.checkbox("Administrador")
             
             if st.form_submit_button("Cadastrar"):
@@ -248,7 +251,7 @@ if tipo_chat == "🏢 Canais de Setor":
         nao_lidas = 0
         for m in msgs_canal:
             remetente = m.get("usuario_nome", "")
-            if not remetente.startswith(usuario_atual['nome']):
+            if not remetente.startswith(nome_limpo_usuario):
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     nao_lidas += 1
@@ -303,7 +306,7 @@ with col_chat:
             if qtd_atual > st.session_state["ultima_qtd_msgs"]:
                 ultima_msg = todas_atuais[-1]
                 remetente_ult = ultima_msg.get("usuario_nome", "")
-                if not remetente_ult.startswith(usuario_atual['nome']):
+                if not remetente_ult.startswith(nome_limpo_usuario):
                     st.toast(f"🔔 Nova mensagem de {remetente_ult}!", icon="💬")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
@@ -319,7 +322,7 @@ with col_chat:
 
             for msg in mensagens:
                 remetente_msg = msg.get("usuario_nome", "")
-                is_me = remetente_msg.startswith(usuario_atual['nome'])
+                is_me = remetente_msg.startswith(nome_limpo_usuario)
                 avatar = "🟢" if is_me else "👤"
                 
                 leituras = msg.get("leituras_confirmadas") or []
@@ -429,7 +432,7 @@ with col_tarefas:
         if st.button("Salvar Tarefa"):
             if nova_tarefa_titulo:
                 supabase.table("tarefas").insert({
-                    "canal_id": canal_id if canal_id else 1,
+                    "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else 1,
                     "titulo": nova_tarefa_titulo,
                     "atribuido_a": responsavel_sel,
                     "status": "Pendente"
