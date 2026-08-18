@@ -224,8 +224,8 @@ with col_chat:
             if msg.get("tempo_expiracao_minutos"):
                 st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
 
-            # 🗑️ PERMISSÃO DE EXCLUSÃO (Apenas Administrador ou Autor da mensagem)
-            if usuario_atual.get("eh_admin") or is_me:
+            # 🗑️ PERMISSÃO DE EXCLUSÃO (EXCLUSIVA PARA ADMINISTRADORES)
+            if usuario_atual.get("eh_admin"):
                 if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
                     supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
                     st.rerun()
