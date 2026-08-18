@@ -382,7 +382,14 @@ with col_chat:
                 if msg.get("eh_comunicado"):
                     st.warning("📌 **COMUNICADO OFICIAL**")
                 
-                st.markdown(f"**{msg['usuario_nome']}**")
+                # Cabeçalho da mensagem com o nome e o horário alinhados lado a lado (Nome à esquerda, Horário à direita)
+                col_nome, col_hora = st.columns([5, 1])
+                with col_nome:
+                    st.markdown(f"**{msg['usuario_nome']}**")
+                with col_hora:
+                    if hora_formatada:
+                        st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
+
                 if msg.get('texto'):
                     st.write(msg['texto'])
 
@@ -414,10 +421,6 @@ with col_chat:
                             """,
                             unsafe_allow_html=True
                         )
-
-                # Exibição discreta do horário de envio no rodapé da mensagem
-                if hora_formatada:
-                    st.caption(f"🕒 {hora_formatada}")
 
                 if msg.get("eh_comunicado"):
                     leituras = msg.get("leituras_confirmadas") or []
