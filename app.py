@@ -3,16 +3,51 @@ import streamlit as st
 # Configuração da página em modo estendido
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
-# CSS personalizado para aproximar o visual do modelo escuro
+# CSS Otimizado para Tema Escuro de Alto Contraste
 st.markdown("""
     <style>
-        .stApp { background-color: #111b21; color: #e9edef; }
-        [data-testid="stSidebar"] { background-color: #111b21; border-right: 1px solid #222d34; }
-        .stChatMessage { border-radius: 8px; margin-bottom: 8px; }
+        /* Fundo do aplicativo */
+        .stApp {
+            background-color: #0b141a;
+            color: #e9edef;
+        }
+
+        /* Estilização dos textos do menu lateral */
+        [data-testid="stSidebar"] {
+            background-color: #111b21 !important;
+            border-right: 1px solid #222d34;
+        }
+        [data-testid="stSidebar"] * {
+            color: #e9edef !important;
+        }
+
+        /* Balões das mensagens */
+        [data-testid="stChatMessage"] {
+            background-color: #202c33 !important;
+            border: 1px solid #2a3942;
+            border-radius: 8px;
+            color: #e9edef !important;
+        }
+        [data-testid="stChatMessage"] * {
+            color: #e9edef !important;
+        }
+
+        /* Caixa de digitação */
+        .stChatInputContainer textarea {
+            background-color: #2a3942 !important;
+            color: #ffffff !important;
+        }
+
+        /* Cartões de Tarefas */
+        div[data-testid="stContainer"] {
+            background-color: #1f2c33 !important;
+            border: 1px solid #2a3942 !important;
+            border-radius: 8px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# 1. LATERAL: Seleção de Canais conforme sua lista de setores
+# 1. LATERAL: Seleção de Canais
 st.sidebar.title("🏢 Canais da Empresa")
 
 canais = [
@@ -32,14 +67,13 @@ canal_atual = st.sidebar.radio("Selecione o setor:", canais)
 st.sidebar.divider()
 st.sidebar.caption("👤 Logado como: **Administrador**")
 
-# 2. ÁREA PRINCIPAL: Cabeçalho do Canal e Aba de Tarefas
+# 2. ÁREA PRINCIPAL
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
     st.subheader(f"Conversa em {canal_atual}")
     st.caption("Mensagens internas criptografadas")
     
-    # Exemplo de fluxo de mensagens
     with st.chat_message("user", avatar="👤"):
         st.markdown("**Carlos (Licitação)**")
         st.write("Alguém do estoque pode verificar a quantidade do item X?")
@@ -52,7 +86,6 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas Pendentes")
     
-    # Lista rápida de tarefas do setor
     with st.container(border=True):
         st.markdown("⏳ **Pendente**")
         st.write("Verificar edital nº 04/2026")
