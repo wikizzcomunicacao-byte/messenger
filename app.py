@@ -142,7 +142,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO GLOBAL DE NÃO LIDAS (EXCLUINDO AS PRÓPRIA MENSAGENS)
+# CÁLCULO GLOBAL DE NÃO LIDAS
 # ---------------------------------------------------------
 total_geral_nao_lidas = 0
 try:
@@ -233,7 +233,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES CORRIGIDOS
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES DE DMs ROBUSTOS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -273,13 +273,13 @@ else:
     
     mapa_dms = {}
     for u in outros:
-        # Conta mensagens de DM direcionadas a mim onde o remetente é este usuário
         dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
         
         qtd_dm = 0
         for m in dm_nao_lidas:
             remetente = m.get("usuario_nome", "")
-            if remetente.startswith(u['nome']):
+            # Compatível tanto com nome formatado quanto com nome puro
+            if remetente.startswith(u['nome']) or remetente == u['nome']:
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     qtd_dm += 1
@@ -330,7 +330,7 @@ with col_chat:
                 is_me = remetente_msg.startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
-                # Marca automaticamente a mensagem como lida ao abrir a conversa (Canais ou DMs)
+                # Marca automaticamente como lida ao carregar a conversa
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
