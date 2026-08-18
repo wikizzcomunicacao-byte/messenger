@@ -425,13 +425,16 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (ANEXO E COMUNICADO LADO A LADO) ---
+    # --- PAINEL DE ENVIO COMPACTO (COMUNICADO E ANEXO COM TOOLTIP) ---
     st.divider()
     
-    col_input, col_clip, col_com, col_btn = st.columns([5.2, 0.8, 1.2, 0.8])
+    col_input, col_com, col_clip, col_btn = st.columns([5.2, 0.8, 0.8, 0.8])
 
     with col_input:
         prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
+
+    with col_com:
+        eh_comunicado = st.checkbox("📢", help="Marcar como Comunicado Oficial", label_visibility="collapsed")
 
     with col_clip:
         with st.popover("📎", help="Anexar arquivo"):
@@ -441,9 +444,6 @@ with col_chat:
                 key=f"uploader_{st.session_state['uploader_key']}",
                 label_visibility="collapsed"
             )
-
-    with col_com:
-        eh_comunicado = st.checkbox("📢 Comunicado", help="Marcar como Comunicado Oficial")
 
     with col_btn:
         btn_enviar = st.button("🚀", help="Enviar Mensagem")
