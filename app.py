@@ -160,53 +160,54 @@ try:
 except:
     pass
 
-# BARRA LATERAL - PERFIL
+# BARRA LATERAL - PERFIL E MINI-CHATS DE RESPOSTA RÁPIDA
 if total_geral_nao_lidas > 0:
     st.sidebar.markdown(f"🔔 **{nome_limpo_usuario}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
     
-    # PAINEL DE MINI-CHATS NA LATERAL COM BOTÃO DE FECHAR (X)
-    with st.sidebar.expander("💬 Mini-Chats de Notificação"):
-        for mn in mensagens_nao_lidas_detalhes:
-            m_id = mn.get("id")
-            rem = mn.get("usuario_nome", "Alguém")
-            txt = mn.get("texto", "")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("💬 **Mini-Chats Pendentes:**")
+    
+    for mn in mensagens_nao_lidas_detalhes:
+        m_id = mn.get("id")
+        rem = mn.get("usuario_nome", "Alguém")
+        txt = mn.get("texto", "")
+        
+        with st.sidebar.container(border=True):
+            col_info, col_x = st.columns([5, 1])
+            with col_info:
+                st.markdown(f"**{rem}**")
+                st.caption(txt)
+            with col_x:
+                if st.button("✕", key=f"fechar_notif_{m_id}"):
+                    st.session_state["notificacoes_fechadas"].add(m_id)
+                    st.rerun()
             
-            with st.container(border=True):
-                col_info, col_x = st.columns([5, 1])
-                with col_info:
-                    st.markdown(f"**{rem}**")
-                    st.caption(txt)
-                with col_x:
-                    if st.button("✕", key=f"fechar_notif_{m_id}"):
-                        st.session_state["notificacoes_fechadas"].add(m_id)
-                        st.rerun()
-                
-                # Resposta rápida direto pela lateral
-                resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
-                if resposta_mini:
-                    try:
-                        dest_id_env = mn.get("destinatario_id")
-                        canal_id_env = mn.get("canal_id")
-                        
-                        supabase.table("mensagens").insert({
-                            "canal_id": canal_id_env if canal_id_env else None,
-                            "usuario_nome": nome_formatado_logado,
-                            "texto": resposta_mini,
-                            "destinatario_id": dest_id_env if dest_id_env else None,
-                            "leituras_confirmadas": [usuario_atual['id']]
-                        }).execute()
-                        
-                        # Marca esta mensagem como lida e fecha o mini-chat
-                        leituras = mn.get("leituras_confirmadas") or []
-                        if usuario_atual['id'] not in leituras:
-                            leituras.append(usuario_atual['id'])
-                            supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", m_id).execute()
-                        
-                        st.session_state["notificacoes_fechadas"].add(m_id)
-                        st.success("Enviado!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
+            # Caixa de resposta rápida direto no mini-chat
+            resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
+            if resposta_mini:
+                try:
+                    dest_id_env = mn.get("destinatario_id")
+                    canal_id_env = mn.get("canal_id")
+                    
+                    supabase.table("mensagens").insert({
+                        "canal_id": canal_id_env if canal_id_env else None,
+                        "usuario_nome": nome_formatado_logado,
+                        "texto": resposta_mini,
+                        "destinatario_id": dest_id_env if dest_id_env else None,
+                        "leituras_confirmadas": [usuario_atual['id']]
+                    }).execute()
+                    
+                    # Marca como lida e fecha o mini-chat
+                    leituras = mn.get("leituras_confirmadas") or []
+                    if usuario_atual['id'] not in leituras:
+                        leituras.append(usuario_atual['id'])
+                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", m_id).execute()
+                    
+                    st.session_state["notificacoes_fechadas"].add(m_id)
+                    st.success("Enviado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
 else:
     st.sidebar.title(f"👤 {nome_limpo_usuario}")
 
@@ -378,11 +379,6 @@ with col_chat:
             qtd_atual = len(todas_atuais)
             
             if qtd_atual > st.session_state["ultima_qtd_msgs"]:
-                if todas_atuais:
-                    ultima_msg = todas_atuais[-1]
-                    remetente_ult = ultima_msg.get("usuario_nome", "")
-                    if not remetente_ult.startswith(nome_limpo_usuario):
-                        st.toast(f"🔔 Nova mensagem de {remetente_ult}: \"{ultima_msg.get('texto', '')}\"", icon="💬")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
             mensagens = []
