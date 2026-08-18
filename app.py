@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
-import pytz
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
@@ -49,8 +48,8 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# FUSO HORÁRIO DE BRASÍLIA
-fuso_brasilia = pytz.timezone("America_Sao_Paulo")
+# FUSO HORÁRIO DO BRASIL (UTC-3 Fixo - Seguro contra erros de tzdata)
+fuso_brasilia = timezone(timedelta(hours=-3))
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
 if not st.session_state["autenticado"]:
@@ -299,7 +298,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS (COM ATUALIZAÇÃO AUTOMÁTICA / INSTANTÂNEA)
+# TELA 3: CHAT E TAREFAS (COM ATUALIZAÇÃO AUTOMÁTICA)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -345,7 +344,6 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    # FRAGMENTO DE ATUALIZAÇÃO AUTOMÁTICA A CADA 3 SEGUNDOS (CHAT INSTANTÂNEO)
     @st.fragment(run_every=3)
     def renderizar_mensagens():
         if tipo_chat == "🏢 Canais de Setor":
@@ -499,7 +497,6 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas do Grupo")
     
-    # FRAGMENTO DE TAREFAS (ATUALIZAÇÃO AUTOMÁTICA A CADA 3 SEGUNDOS)
     @st.fragment(run_every=3)
     def renderizar_tarefas():
         c_id_tarefa = canal_id if canal_id else 1
