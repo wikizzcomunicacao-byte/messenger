@@ -146,11 +146,11 @@ if usuario_atual.get("eh_admin"):
 tipo_chat = st.sidebar.radio("Modo de Navegação:", opcoes_modo)
 
 # ---------------------------------------------------------
-# TELA 1: PAINEL DE USUÁRIOS (ADMIN)
+# TELA 1: PAINEL DE USUÁRIOS E ZONA DE PERIGO (ADMIN)
 # ---------------------------------------------------------
 if tipo_chat == "⚙️ Painel de Gestão (Admin)":
-    st.title("⚙️ Gestão de Usuários (Administração)")
-    st.caption("Cadastre novos colaboradores ou remova perfis existentes no sistema.")
+    st.title("⚙️ Gestão de Usuários e Sistema")
+    st.caption("Cadastre novos colaboradores ou realize limpezas no sistema.")
     
     col_cad, col_lista = st.columns([1, 1])
     
@@ -194,6 +194,30 @@ if tipo_chat == "⚙️ Painel de Gestão (Admin)":
                             registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_USUARIO", f"Removeu o usuário ID {u['id']}")
                             st.success("Removido!")
                             st.rerun()
+
+    st.divider()
+
+    # 🧹 BOTAO DE LIMPAR TODAS AS CONVERSAS (EXCLUSIVO ADMIN)
+    st.subheader("⚠️ Limpeza do Histórico de Conversas")
+    st.caption("Esta ação é irreversível e excluirá todas as mensagens enviadas em canais e DMs.")
+    
+    with st.expander("🗑️ Clique para expandir as opções de exclusão em massa"):
+        st.error("Atenção: Todas as mensagens e dados de comunicados serão apagados permanentemente!")
+        confirmar_check = st.checkbox("Estou ciente e desejo apagar todas as conversas do sistema.")
+        
+        if st.button("🔥 Apagar Todas as Mensagens do Chat", type="primary"):
+            if confirmar_check:
+                try:
+                    # Deleta todos os registros da tabela mensagens usando id gte 0
+                    supabase.table("mensagens").delete().gte("id", 0).execute()
+                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LIMPAR_CONVERSAS", "Apagou todo o histórico de mensagens do chat")
+                    st.success("✅ Todo o histórico de mensagens foi excluído com sucesso!")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Erro ao limpar mensagens: {ex}")
+            else:
+                st.warning("Marque a caixa de seleção para confirmar a exclusão.")
+
     st.stop()
 
 # ---------------------------------------------------------
@@ -246,7 +270,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS (MODO NORMAL COM ANEXOS)
+# TELA 3: CHAT E TAREFAS (MODO NORMAL)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -320,7 +344,7 @@ with col_chat:
             if msg.get('texto'):
                 st.write(msg['texto'])
 
-            # EXIBIÇÃO DE ANEXOS (IMAGENS, ÁUDIOS, DOCUMENTOS)
+            # EXIBIÇÃO DE ANEXOS
             if msg.get("arquivo_url"):
                 tipo_arq = msg.get("arquivo_tipo", "")
                 url_arq = msg.get("arquivo_url")
@@ -364,7 +388,7 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM COM SUPORTE A ANEXOS
+    # ENVIAR NOVA MENSAGEM
     with st.container():
         prompt = st.chat_input("Digite sua mensagem...")
         
@@ -392,7 +416,6 @@ with col_chat:
                     nome_arquivo = f"{datetime.now().timestamp()}_{arquivo_enviado.name}"
                     bytes_data = arquivo_enviado.getvalue()
                     
-                    # Upload para o Supabase Storage
                     supabase.storage.from_("anexos").upload(nome_arquivo, bytes_data)
                     url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
                     tipo_arquivo = arquivo_enviado.type
