@@ -368,7 +368,6 @@ with col_chat:
             is_me = msg['usuario_nome'] == nome_formatado_logado
             avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
             
-            # Formatação do horário da mensagem (Convertendo de UTC para o horário de Brasília)
             hora_formatada = ""
             if msg.get("criado_em"):
                 try:
@@ -382,7 +381,6 @@ with col_chat:
                 if msg.get("eh_comunicado"):
                     st.warning("📌 **COMUNICADO OFICIAL**")
                 
-                # Cabeçalho da mensagem com o nome e o horário alinhados lado a lado (Nome à esquerda, Horário à direita)
                 col_nome, col_hora = st.columns([5, 1])
                 with col_nome:
                     st.markdown(f"**{msg['usuario_nome']}**")
@@ -393,7 +391,6 @@ with col_chat:
                 if msg.get('texto'):
                     st.write(msg['texto'])
 
-                # EXIBIÇÃO DE ANEXOS (COM BOTÃO DE DOWNLOAD DIRETO)
                 if msg.get("arquivo_url"):
                     tipo_arq = msg.get("arquivo_tipo", "") or ""
                     url_arq = msg.get("arquivo_url")
@@ -452,7 +449,7 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO ---
+    # --- PAINEL DE ENVIO COMPACTO (COM LIMPEZA DO CAMPO DE TEXTO) ---
     st.divider()
     
     col_input, col_com, col_clip, col_btn = st.columns([5.4, 0.6, 0.6, 0.8])
@@ -514,6 +511,8 @@ with col_chat:
         supabase.table("mensagens").insert(nova_msg).execute()
         registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
         
+        # Limpa o campo de texto limpando a chave do session_state
+        st.session_state["input_texto_msg"] = ""
         st.session_state["uploader_key"] += 1
         st.rerun()
 
