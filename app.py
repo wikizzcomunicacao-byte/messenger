@@ -263,43 +263,48 @@ with col_chat:
                     except:
                         pass
 
-                with st.chat_message("user", avatar=avatar):
-                    col_nome, col_hora = st.columns([5, 1])
-                    with col_nome:
-                        st.markdown(f"**{msg['usuario_nome']}**")
-                    with col_hora:
-                        if hora_formatada:
-                            st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
+            with st.chat_message("user", avatar=avatar):
+                col_nome, col_hora = st.columns([5, 1])
+                with col_nome:
+                    st.markdown(f"**{msg['usuario_nome']}**")
+                with col_hora:
+                    if hora_formatada:
+                        st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
 
-                    if msg.get('texto'):
-                        st.write(msg['texto'])
+                if msg.get('texto'):
+                    st.write(msg['texto'])
 
-                    if msg.get("arquivo_url"):
-                        url_arq = msg.get("arquivo_url")
-                        nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
-                        st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
+                if msg.get("arquivo_url"):
+                    url_arq = msg.get("arquivo_url")
+                    nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
+                    st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
 
-                    if not is_me:
-                        st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
+                if not is_me:
+                    st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
 
-                    if usuario_atual.get("eh_admin"):
-                        if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
-                            supabase.table("mensagens").delete().eq("id", msg['id']).execute()
-                            st.rerun()
+                if usuario_atual.get("eh_admin"):
+                    if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
+                        supabase.table("mensagens").delete().eq("id", msg['id']).execute()
+                        st.rerun()
 
         renderizar_mensagens()
         
-        # SCRIPT JAVASCRIPT PARA ROLAR O CHAT AUTOMATICAMENTE ATÉ O FINAL
+        # SCRIPT JS ROBUSTO PARA FORÇAR O SCROLL AUTOMÁTICO NO CONTAINER DE CHAT
         components.html("""
             <script>
-                const chatContainer = window.parent.document.querySelectorAll('[data-testid="stVerticalBlock"]');
-                for (let el of chatContainer) {
-                    if (el.scrollHeight > el.clientHeight) {
-                        el.scrollTop = el.scrollHeight;
-                    }
+                const doc = window.parent.document;
+                function scrollChat() {
+                    const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
+                    containers.forEach(el => {
+                        if (el.scrollHeight > el.clientHeight) {
+                            el.scrollTop = el.scrollHeight;
+                        }
+                    });
+                    const scrollables = doc.querySelectorAll('div[data-testid="stVerticalBlock"] div[style*="overflow"]');
+                    scrollables.forEach(s => s.scrollTop = s.scrollHeight);
                 }
-                const scrollables = window.parent.document.querySelectorAll('[data-testid="stExpander"] + div, div[style*="overflow: auto"]');
-                scrollables.forEach(s => s.scrollTop = s.scrollHeight);
+                setTimeout(scrollChat, 100);
+                setTimeout(scrollChat, 300);
             </script>
         """, height=0, width=0)
     
