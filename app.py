@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
+import pytz
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
@@ -48,7 +49,7 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# FUSO HORÁRIO DO BRASIL (UTC-3 Fixo - Seguro contra erros de tzdata)
+# FUSO HORÁRIO DO BRASÍLIA (UTC-3 Fixo)
 fuso_brasilia = timezone(timedelta(hours=-3))
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
@@ -57,7 +58,7 @@ if not st.session_state["autenticado"]:
     
     agora_local = datetime.now(fuso_brasilia)
     hora_atual = agora_local.hour
-    dia_semana = agora_local.weekday()  # 0 a 4 = Seg a Sex, 5 e 6 = Fim de semana
+    dia_semana = agora_local.weekday()
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -76,7 +77,6 @@ if not st.session_state["autenticado"]:
                 hora_inicio = dados_usuario.get("hora_inicio_expediente", 7)
                 hora_fim = dados_usuario.get("hora_fim_expediente", 19)
 
-                # Expediente individual (Admin liberado)
                 fora_do_expediente = (hora_atual < hora_inicio or hora_atual >= hora_fim or dia_semana >= 5)
 
                 if fora_do_expediente and not eh_admin:
@@ -436,63 +436,71 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # ENVIAR NOVA MENSAGEM / ANEXO
-    with st.expander("📎 Anexar Arquivo (PDF, Imagem, Documento, Áudio)"):
-        arquivo_enviado = st.file_uploader(
-            "Selecione o arquivo do seu computador:", 
-            type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
-            key=f"uploader_{st.session_state['uploader_key']}"
-        )
+    # --- NOVO PAINEL DE ENVIO COMPACTO (COM ÍCONES NO CANTO DIREITO) ---
+    st.divider()
+    
+    # Linha principal de digitação e ícones à direita
+    col_clip, col_input, col_com, col_timer, col_btn = st.columns([0.6, 5.4, 1.3, 1.4, 0.8])
 
-    with st.form("form_envio_mensagem", clear_on_submit=True):
-        prompt = st.text_input("Digite sua mensagem...", key="input_texto_msg")
+    with col_clip:
+        # Botão expansor discreto com o grampo de anexo
+        with st.popover("📎", help="Anexar arquivo"):
+            arquivo_enviado = st.file_uploader(
+                "Selecione o arquivo:", 
+                type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
+                key=f"uploader_{st.session_state['uploader_key']}",
+                label_visibility="collapsed"
+            )
+    with col_input:
+        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
-        col_opt1, col_opt2 = st.columns(2)
-        with col_opt1:
-            eh_comunicado = st.checkbox("📌 Marcar como Comunicado Oficial")
-        with col_opt2:
-            expiracao_opcao = st.selectbox("⏱️ Autodestruição:", ["Desativada", "5 minutos", "60 minutos"])
+    with col_com:
+        eh_comunicado = st.checkbox("📢", help="Marcar como Comunicado Oficial")
 
-        btn_enviar = st.form_submit_button("Enviar Mensagem", use_container_width=True)
+    with col_timer:
+        expiracao_opcao = st.selectbox("⏱️", ["Desativada", "5 min", "60 min"], help="Autodestruição", label_visibility="collapsed")
 
-        if btn_enviar and (prompt or arquivo_enviado):
-            minutos_expira = 5 if expiracao_opcao == "5 minutos" else (60 if expiracao_opcao == "60 minutos" else None)
-            url_publica = None
-            tipo_arquivo = None
+    with col_btn:
+        btn_enviar = st.button("🚀", help="Enviar Mensagem")
 
-            if arquivo_enviado is not None:
-                try:
-                    timestamp_atual = int(datetime.now().timestamp())
-                    nome_arquivo = f"{timestamp_atual}_{arquivo_enviado.name}"
-                    bytes_data = arquivo_enviado.getvalue()
-                    content_type = arquivo_enviado.type or "application/pdf"
+    if btn_enviar and (prompt or 'arquivo_enviado' in locals() and arquivo_enviado is not None):
+        minutos_expira = 5 if expiracao_opcao == "5 min" else (60 if expiracao_opcao == "60 min" else None)
+        url_publica = None
+        tipo_arquivo = None
 
-                    supabase.storage.from_("anexos").upload(
-                        path=nome_arquivo, 
-                        file=bytes_data, 
-                        file_options={"content-type": content_type, "upsert": "true"}
-                    )
-                    url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
-                    tipo_arquivo = content_type
-                except Exception as ex:
-                    st.error(f"Erro ao subir arquivo: {ex}")
+        if 'arquivo_enviado' in locals() and arquivo_enviado is not None:
+            try:
+                timestamp_atual = int(datetime.now().timestamp())
+                nome_arquivo = f"{timestamp_atual}_{arquivo_enviado.name}"
+                bytes_data = arquivo_enviado.getvalue()
+                content_type = arquivo_enviado.type or "application/pdf"
 
-            nova_msg = {
-                "canal_id": canal_id if canal_id else 1,
-                "usuario_nome": nome_formatado_logado,
-                "texto": prompt if prompt else "",
-                "destinatario_id": destinatario['id'] if destinatario else None,
-                "eh_comunicado": eh_comunicado,
-                "tempo_expiracao_minutos": minutos_expira,
-                "leituras_confirmadas": [],
-                "arquivo_url": url_publica,
-                "arquivo_tipo": tipo_arquivo
-            }
-            supabase.table("mensagens").insert(nova_msg).execute()
-            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
-            
-            st.session_state["uploader_key"] += 1
-            st.rerun()
+                supabase.storage.from_("anexos").upload(
+                    path=nome_arquivo, 
+                    file=bytes_data, 
+                    file_options={"content-type": content_type, "upsert": "true"}
+                )
+                url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
+                tipo_arquivo = content_type
+            except Exception as ex:
+                st.error(f"Erro ao subir arquivo: {ex}")
+
+        nova_msg = {
+            "canal_id": canal_id if canal_id else 1,
+            "usuario_nome": nome_formatado_logado,
+            "texto": prompt if prompt else "",
+            "destinatario_id": destinatario['id'] if destinatario else None,
+            "eh_comunicado": eh_comunicado,
+            "tempo_expiracao_minutos": minutos_expira,
+            "leituras_confirmadas": [],
+            "arquivo_url": url_publica,
+            "arquivo_tipo": tipo_arquivo
+        }
+        supabase.table("mensagens").insert(nova_msg).execute()
+        registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
+        
+        st.session_state["uploader_key"] += 1
+        st.rerun()
 
 with col_tarefas:
     st.subheader("📋 Tarefas do Grupo")
