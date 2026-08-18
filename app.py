@@ -167,7 +167,7 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    # Buscar e processar limpeza de mensagens expiradas
+    # Buscar mensagens do canal ou DMs
     if tipo_chat == "🏢 Canais de Setor":
         mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
         mensagens = mensagens_res.data
@@ -197,21 +197,28 @@ with col_chat:
             st.markdown(f"**{msg['usuario_nome']}**")
             st.write(msg['texto'])
 
-            # Lógica do Comunicado Oficial (Botão de Leitura e Contador)
+            # Lógica do Comunicado Oficial (Restrita aos membros do setor)
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
                 total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
                 
+                # Identifica se o usuário logado pertence a este setor do canal
+                ids_membros_canal = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
+                eh_membro_do_setor = usuario_atual['id'] in ids_membros_canal
+
                 if usuario_atual['id'] not in leituras:
-                    if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
-                        leituras.append(usuario_atual['id'])
-                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
-                        st.rerun()
+                    if eh_membro_do_setor:
+                        if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
+                            leituras.append(usuario_atual['id'])
+                            supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
+                            st.rerun()
+                    else:
+                        st.caption("🔒 *Apenas colaboradores pertencentes a este setor podem confirmar leitura.*")
                 else:
                     st.caption("✔️ Você já confirmou leitura deste comunicado.")
                 
                 st.progress(len(leituras) / max(total_alvo, 1))
-                st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores leram.")
+                st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores do setor leram.")
 
             if msg.get("tempo_expiracao_minutos"):
                 st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
