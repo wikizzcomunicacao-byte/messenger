@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página em modo amplo
+# Configuração da página em modo estendido
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
 # 1. CONEXÃO COM O SUPABASE
@@ -14,7 +14,7 @@ def init_supabase() -> Client:
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error(f"⚠️ Erro na inicialização do Supabase: {e}")
+    st.error("⚠️ Conexão pendente: Configure as chaves SUPABASE_URL e SUPABASE_KEY nos Secrets do Streamlit.")
     st.stop()
 
 # 2. PALETAS DE CORES (5 OPÇÕES)
@@ -36,7 +36,7 @@ PALETAS = {
     }
 }
 
-# 3. SELETOR DE TEMAS
+# 3. SELETOR DE TEMAS NA BARRA LATERAL
 st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
@@ -55,18 +55,26 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# 5. GERENCIAMENTO DE IDENTIDADE DO USUÁRIO
-if "usuario_nome" not in st.session_state:
-    st.session_state["usuario_nome"] = ""
-
+# 5. GERENCIAMENTO DE IDENTIDADE DO USUÁRIO (VIA BANCO DE DADOS)
 st.sidebar.divider()
 st.sidebar.title("👤 Identificação")
-nome_input = st.sidebar.text_input("Seu nome e setor:", value=st.session_state["usuario_nome"], placeholder="Ex: Carlos (Licitação)")
 
-if nome_input:
-    st.session_state["usuario_nome"] = nome_input
-else:
-    st.sidebar.warning("Digite seu nome acima para poder enviar mensagens.")
+def obter_usuarios():
+    res = supabase.table("usuarios").select("*").order("nome").execute()
+    return res.data
+
+try:
+    lista_usuarios = obter_usuarios()
+    if lista_usuarios:
+        opcoes_usuarios = [f"{u['nome']} ({u['setor']})" for u in lista_usuarios]
+        usuario_selecionado = st.sidebar.selectbox("Selecione seu nome:", opcoes_usuarios)
+        st.session_state["usuario_nome"] = usuario_selecionado
+    else:
+        st.sidebar.warning("Nenhum usuário cadastrado na tabela 'usuarios'.")
+        st.session_state["usuario_nome"] = ""
+except Exception as e:
+    st.sidebar.error(f"Erro ao carregar lista de usuários: {e}")
+    st.session_state["usuario_nome"] = ""
 
 # 6. CARREGAMENTO DOS CANAIS DO SUPABASE
 st.sidebar.divider()
@@ -95,13 +103,13 @@ col_chat, col_tarefas = st.columns([2, 1])
 with col_chat:
     st.subheader(f"Conversa em {canal_selecionado}")
     
-    # Buscar histórico de mensagens
+    # Buscar histórico de mensagens no Supabase
     mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).order("criado_em", desc=False).execute()
     mensagens = mensagens_res.data
 
     # Exibir histórico
     for msg in mensagens:
-        is_me = msg['usuario_nome'] == st.session_state["usuario_nome"]
+        is_me = msg['usuario_nome'] == st.session_state.get("usuario_nome", "")
         avatar = "🟢" if is_me else "👤"
         with st.chat_message("user", avatar=avatar):
             st.markdown(f"**{msg['usuario_nome']}**")
@@ -109,8 +117,8 @@ with col_chat:
 
     # Envio de nova mensagem
     if prompt := st.chat_input(f"Enviar mensagem em {canal_selecionado}..."):
-        if not st.session_state["usuario_nome"]:
-            st.warning("Por favor, preencha seu nome na barra lateral antes de enviar uma mensagem.")
+        if not st.session_state.get("usuario_nome"):
+            st.warning("Por favor, selecione seu usuário na barra lateral antes de enviar uma mensagem.")
         else:
             nova_msg = {
                 "canal_id": canal_id,
@@ -123,7 +131,7 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas do Setor")
     
-    # Buscar tarefas pendentes
+    # Buscar tarefas do setor
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", canal_id).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
