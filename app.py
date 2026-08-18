@@ -311,7 +311,6 @@ if tipo_chat == "🏢 Canais de Setor":
     
     lista_canais = obter_canais()
     
-    # Contagem rápida de mensagens para exibir alertas visuais nos canais
     mapa_canais = {}
     for c in lista_canais:
         msgs_canal = supabase.table("mensagens").select("id", count="exact").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
@@ -369,6 +368,16 @@ with col_chat:
             is_me = msg['usuario_nome'] == nome_formatado_logado
             avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
             
+            # Formatação do horário da mensagem (Convertendo de UTC para o horário de Brasília)
+            hora_formatada = ""
+            if msg.get("criado_em"):
+                try:
+                    dt_utc = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
+                    dt_local = dt_utc.astimezone(fuso_brasilia)
+                    hora_formatada = dt_local.strftime("%H:%M")
+                except Exception:
+                    pass
+
             with st.chat_message("user", avatar=avatar):
                 if msg.get("eh_comunicado"):
                     st.warning("📌 **COMUNICADO OFICIAL**")
@@ -405,6 +414,10 @@ with col_chat:
                             """,
                             unsafe_allow_html=True
                         )
+
+                # Exibição discreta do horário de envio no rodapé da mensagem
+                if hora_formatada:
+                    st.caption(f"🕒 {hora_formatada}")
 
                 if msg.get("eh_comunicado"):
                     leituras = msg.get("leituras_confirmadas") or []
