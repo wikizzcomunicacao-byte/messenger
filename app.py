@@ -340,7 +340,8 @@ with col_chat:
                     ultima_msg = todas_atuais[-1]
                     remetente_ult = ultima_msg.get("usuario_nome", "")
                     if not remetente_ult.startswith(nome_limpo_usuario):
-                        st.warning(f"🔔 Nova mensagem de {remetente_ult}: \"{ultima_msg.get('texto', '')}\"")
+                        # POPUP FLUTUANTE (TOAST) NATIVO DO STREAMLIT
+                        st.toast(f"🔔 Nova mensagem de {remetente_ult}: \"{ultima_msg.get('texto', '')}\"", icon="💬")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
             mensagens = []
