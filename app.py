@@ -85,7 +85,6 @@ if not st.session_state["autenticado"]:
                 elif senha_input == dados_usuario.get("senha", "123456"):
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = dados_usuario
-                    # Inicializa contagem de mensagens no login
                     tot_msgs = supabase.table("mensagens").select("id", count="exact").execute().data or []
                     st.session_state["ultima_qtd_msgs"] = len(tot_msgs)
                     registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", f"Login às {agora_local.strftime('%H:%M')}")
@@ -100,6 +99,7 @@ if not st.session_state["autenticado"]:
 # ---------------------------------------------------------
 usuario_atual = st.session_state["usuario_logado"]
 todos_usuarios = buscar_usuarios()
+nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
 # PALETAS DE CORES
 PALETAS = {
@@ -119,20 +119,6 @@ PALETAS = {
         "bg_app": "#f8fafc", "bg_sidebar": "#f1f5f9", "bg_msg": "#ffffff", "primary": "#0284c7", "text": "#0f172a"
     }
 }
-
-# BARRA LATERAL - PERFIL
-st.sidebar.title(f"👤 {usuario_atual['nome']}")
-st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
-st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 19)}h")
-
-if usuario_atual.get("eh_admin"):
-    st.sidebar.success("👑 Administrador")
-
-if st.sidebar.button("🚪 Sair", use_container_width=True):
-    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
-    st.session_state["autenticado"] = False
-    st.session_state["usuario_logado"] = None
-    st.rerun()
 
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
@@ -154,6 +140,41 @@ st.markdown(f"""
         }}
     </style>
 """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# CÁLCULO GLOBAL DE NÃO LIDAS PARA O ÍCONE DE NOTIFICAÇÃO NO TOPO
+# ---------------------------------------------------------
+total_geral_nao_lidas = 0
+try:
+    todas_as_msgs = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").execute().data or []
+    for m in todas_as_msgs:
+        if m.get("usuario_nome") != nome_formatado_logado:
+            dest_id = m.get("destinatario_id")
+            # Se for DM direcionada a mim ou mensagem geral de canal
+            if dest_id is None or dest_id == usuario_atual['id']:
+                leituras = m.get("leituras_confirmadas") or []
+                if usuario_atual['id'] not in leituras:
+                    total_geral_nao_lidas += 1
+except:
+    pass
+
+# BARRA LATERAL - PERFIL COM ÍCONE DE NOTIFICAÇÃO
+if total_geral_nao_lidas > 0:
+    st.sidebar.markdown(f"### 🔔 **{usuario_atual['nome']}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
+else:
+    st.sidebar.title(f"👤 {usuario_atual['nome']}")
+
+st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
+st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 19)}h")
+
+if usuario_atual.get("eh_admin"):
+    st.sidebar.success("👑 Administrador")
+
+if st.sidebar.button("🚪 Sair", use_container_width=True):
+    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = None
+    st.rerun()
 
 # OPÇÕES DE NAVEGAÇÃO
 st.sidebar.divider()
@@ -212,7 +233,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM NOTIFICAÇÕES POPUP (TOAST)
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES NA BARRA LATERAL
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -224,14 +245,12 @@ if tipo_chat == "🏢 Canais de Setor":
     canais = supabase.table("canais").select("*").order("id").execute().data or []
     
     mapa_canais = {}
-    nome_logado_str = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
-    
     for c in canais:
         msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
         
         nao_lidas = 0
         for m in msgs_canal:
-            if m.get("usuario_nome") != nome_logado_str:
+            if m.get("usuario_nome") != nome_formatado_logado:
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
                     nao_lidas += 1
@@ -273,21 +292,23 @@ else:
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
-    st.subheader(titulo_chat)
-    nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
+    # Cabeçalho do Chat com indicador de notificação se houver mensagens novas
+    if total_geral_nao_lidas > 0:
+        st.markdown(f"### 🔔 {titulo_chat} <span style='font-size: 0.6em; background-color: #25d366; color: black; padding: 2px 8px; border-radius: 10px;'>{total_geral_nao_lidas} novas mensagens</span>", unsafe_allow_html=True)
+    else:
+        st.subheader(titulo_chat)
 
     # Container com altura controlada e scroll interno
     with st.container(height=480):
         @st.fragment(run_every=3)
         def renderizar_mensagens():
-            # Verificação de novas mensagens para disparar Popup Toast
             todas_atuais = supabase.table("mensagens").select("id, usuario_nome").execute().data or []
             qtd_atual = len(todas_atuais)
             
             if qtd_atual > st.session_state["ultima_qtd_msgs"]:
                 ultima_msg = todas_atuais[-1]
                 if ultima_msg.get("usuario_nome") != nome_formatado_logado:
-                    st.toast(f"💬 Nova mensagem de {ultima_msg.get('usuario_nome', 'Alguém')}!", icon="🔔")
+                    st.toast(f"🔔 Nova mensagem de {ultima_msg.get('usuario_nome', 'Alguém')}!", icon="💬")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
             if tipo_chat == "🏢 Canais de Setor":
@@ -304,7 +325,6 @@ with col_chat:
                 is_me = msg['usuario_nome'] == nome_formatado_logado or msg['usuario_nome'].startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
-                # Marca automaticamente a mensagem como lida ao abrir o chat
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
