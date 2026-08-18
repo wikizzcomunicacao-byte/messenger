@@ -141,7 +141,6 @@ st.markdown(f"""
 # CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS
 # ---------------------------------------------------------
 mensagens_nao_lidas_detalhes = []
-total_geral_nao_lidas = 0
 try:
     todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id, canal_id").execute().data or []
     for m in todas_as_msgs:
@@ -155,10 +154,11 @@ try:
             if dest_id == usuario_atual['id'] or (canal_ref is not None and dest_id is None):
                 leituras = m.get("leituras_confirmadas") or []
                 if usuario_atual['id'] not in leituras:
-                    total_geral_nao_lidas += 1
                     mensagens_nao_lidas_detalhes.append(m)
 except:
     pass
+
+total_geral_nao_lidas = len(mensagens_nao_lidas_detalhes)
 
 # BARRA LATERAL - PERFIL E MINI-CHATS DE RESPOSTA RÁPIDA
 if total_geral_nao_lidas > 0:
@@ -186,18 +186,29 @@ if total_geral_nao_lidas > 0:
             resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
             if resposta_mini:
                 try:
-                    dest_id_env = mn.get("destinatario_id")
                     canal_id_env = mn.get("canal_id")
+                    dest_id_env = mn.get("destinatario_id")
                     
+                    # Se for Mensagem Direta (DM), o destinatário da resposta deve ser o ID de quem enviou a mensagem original
+                    if dest_id_env == usuario_atual['id']:
+                        # Descobre o ID do remetente original pelo nome
+                        nome_remetente_original = rem.split("(")[0].strip()
+                        autor_msg = next((u for u in todos_usuarios if u['nome'].replace("*", "").strip() == nome_remetente_original), None)
+                        novo_dest_id = autor_msg['id'] if autor_msg else None
+                        novo_canal_id = None
+                    else:
+                        novo_canal_id = canal_id_env
+                        novo_dest_id = None
+
                     supabase.table("mensagens").insert({
-                        "canal_id": canal_id_env if canal_id_env else None,
+                        "canal_id": novo_canal_id,
                         "usuario_nome": nome_formatado_logado,
                         "texto": resposta_mini,
-                        "destinatario_id": dest_id_env if dest_id_env else None,
+                        "destinatario_id": novo_dest_id,
                         "leituras_confirmadas": [usuario_atual['id']]
                     }).execute()
                     
-                    # Marca como lida e fecha o mini-chat
+                    # Marca a mensagem como lida e fecha o mini-chat
                     leituras = mn.get("leituras_confirmadas") or []
                     if usuario_atual['id'] not in leituras:
                         leituras.append(usuario_atual['id'])
