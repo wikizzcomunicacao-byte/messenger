@@ -44,8 +44,6 @@ if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 if "uploader_key" not in st.session_state:
     st.session_state["uploader_key"] = 0
-if "input_texto_msg" not in st.session_state:
-    st.session_state["input_texto_msg"] = ""
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -145,7 +143,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO PARA ALINHAMENTO PERFEITO DOS BOTÕES NO RODAPÉ
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -156,12 +154,6 @@ st.markdown(f"""
         .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
         h1, h2, h3, p, span {{ color: {p['text']} !important; }}
         .stChatInputContainer textarea {{ background-color: {p['bg_msg']} !important; color: {p['text']} !important; }}
-        
-        /* Ajuste fino para alinhar os popovers e o botão de envio verticalmente na linha do input */
-        [data-testid="column"] {{
-            display: flex;
-            align-items: flex-end;
-        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -457,38 +449,34 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (ALINHADO PERFEITAMENTE NA MESMA LINHA) ---
+    # --- PAINEL DE ENVIO UNIFICADO COM FORMULÁRIO (LIMPO E SEM DESALINHAMENTOS) ---
     st.divider()
     
-    col_input, col_com, col_clip, col_btn = st.columns([5.0, 0.8, 0.8, 0.8])
+    with st.form(key="form_envio_msg", clear_on_submit=True):
+        col_input, col_com, col_clip, col_btn = st.columns([5.0, 0.9, 0.9, 0.7])
 
-    with col_input:
-        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
+        with col_input:
+            prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
-    with col_com:
-        with st.popover("📢", help="Marcar como Comunicado Oficial"):
-            eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
+        with col_com:
+            eh_comunicado = st.checkbox("📢 Comunicado", help="Marcar como Comunicado Oficial")
 
-    with col_clip:
-        with st.popover("📎", help="Anexar arquivo"):
+        with col_clip:
             arquivo_enviado = st.file_uploader(
-                "Selecione o arquivo:", 
+                "Anexo", 
                 type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
                 key=f"uploader_{st.session_state['uploader_key']}",
                 label_visibility="collapsed"
             )
 
-    with col_btn:
-        btn_enviar = st.button("🚀", help="Enviar Mensagem", use_container_width=True)
+        with col_btn:
+            btn_enviar = st.form_submit_button("🚀", help="Enviar Mensagem", use_container_width=True)
 
-    if 'chk_comunicado_popover' not in st.session_state:
-        st.session_state['chk_comunicado_popover'] = False
-
-    if btn_enviar and (prompt or 'arquivo_enviado' in locals() and arquivo_enviado is not None):
+    if btn_enviar and (prompt or arquivo_enviado is not None):
         url_publica = None
         tipo_arquivo = None
 
-        if 'arquivo_enviado' in locals() and arquivo_enviado is not None:
+        if arquivo_enviado is not None:
             try:
                 timestamp_atual = int(datetime.now().timestamp())
                 nome_arquivo = f"{timestamp_atual}_{arquivo_enviado.name}"
@@ -510,7 +498,7 @@ with col_chat:
             "usuario_nome": nome_formatado_logado,
             "texto": prompt if prompt else "",
             "destinatario_id": destinatario['id'] if destinatario else None,
-            "eh_comunicado": st.session_state.get('chk_comunicado_popover', False),
+            "eh_comunicado": eh_comunicado,
             "tempo_expiracao_minutos": None,
             "leituras_confirmadas": [],
             "arquivo_url": url_publica,
@@ -519,7 +507,6 @@ with col_chat:
         supabase.table("mensagens").insert(nova_msg).execute()
         registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
         
-        st.session_state["input_texto_msg"] = ""
         st.session_state["uploader_key"] += 1
         st.rerun()
 
