@@ -207,7 +207,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES DE NÃO LIDAS
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTROLE INTELIGENTE DE LREADAS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -218,14 +218,21 @@ if tipo_chat == "🏢 Canais de Setor":
     st.sidebar.subheader("Canal:")
     canais = supabase.table("canais").select("*").order("id").execute().data or []
     
-    # Mapeia canais adicionando contagem de mensagens indicadoras
     mapa_canais = {}
     for c in canais:
-        # Busca contagem de mensagens do canal
-        msgs_canal = supabase.table("mensagens").select("id", count="exact").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
-        qtd_msgs = len(msgs_canal)
+        # Busca mensagens do canal que NÃO foram enviadas pelo próprio usuário e onde ele ainda não leu
+        msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
         
-        badge = f" 🔴 ({qtd_msgs})" if qtd_msgs > 0 else ""
+        # Conta apenas as que o usuário atual ainda não adicionou na lista de leitura e que não foram enviadas por ele mesmo
+        nao_lidas = 0
+        nome_logado_str = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
+        for m in msgs_canal:
+            if m.get("usuario_nome") != nome_logado_str:
+                leituras = m.get("leituras_confirmadas") or []
+                if usuario_atual['id'] not in leituras:
+                    nao_lidas += 1
+        
+        badge = f" 🔴 ({nao_lidas})" if nao_lidas > 0 else ""
         label = f"{c['icone']} #{c['nome']}{badge}"
         mapa_canais[label] = c
 
@@ -242,11 +249,16 @@ else:
     
     mapa_dms = {}
     for u in outros:
-        # Conta mensagens diretas não lidas recebidas deste usuário
-        dm_nao_lidas = supabase.table("mensagens").select("id", count="exact").eq("usuario_nome", u['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
-        qtd_dm = len(dm_nao_lidas)
-        badge_dm = f" 🔴 ({qtd_dm})" if qtd_dm > 0 else ""
+        # Conta DMs não lidas enviadas por este usuário para o usuário atual
+        dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas").eq("usuario_nome", f"{u['nome']} ({u['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
         
+        qtd_dm = 0
+        for m in dm_nao_lidas:
+            leituras = m.get("leituras_confirmadas") or []
+            if usuario_atual['id'] not in leituras:
+                qtd_dm += 1
+
+        badge_dm = f" 🔴 ({qtd_dm})" if qtd_dm > 0 else ""
         label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
         mapa_dms[label_dm] = u
 
@@ -279,6 +291,15 @@ with col_chat:
                 is_me = msg['usuario_nome'] == nome_formatado_logado or msg['usuario_nome'].startswith(usuario_atual['nome'])
                 avatar = "🟢" if is_me else "👤"
                 
+                # Marca automaticamente a mensagem como lida pelo usuário atual assim que ele visualiza o chat
+                leituras = msg.get("leituras_confirmadas") or []
+                if not is_me and usuario_atual['id'] not in leituras:
+                    leituras.append(usuario_atual['id'])
+                    try:
+                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
+                    except:
+                        pass
+
                 hora_formatada = ""
                 if msg.get("criado_em"):
                     try:
