@@ -132,19 +132,10 @@ if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
     st.session_state["usuario_logado"] = None
     st.rerun()
 
-# CONFIGURAÇÃO DE SILENCIAMENTO E NOTIFICAÇÃO NATIVA
+# CONFIGURAÇÃO DE SILENCIAMENTO
 st.sidebar.divider()
-st.sidebar.title("⏰ Notificações")
+st.sidebar.title("⏰ Status")
 modo_silencioso = st.sidebar.checkbox("🔕 Modo Não Perturbe", value=usuario_atual.get("modo_silencioso", False))
-
-# Script JavaScript para solicitar permissão de Notificação Push do Navegador
-st.sidebar.markdown("""
-    <script>
-        if (window.Notification && Notification.permission !== "granted") {
-            Notification.requestPermission();
-        }
-    </script>
-""", unsafe_allow_html=True)
 
 # TEMAS
 st.sidebar.divider()
@@ -307,7 +298,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS (COM ATUALIZAÇÃO AUTOMÁTICA E NOTIFICAÇÕES)
+# TELA 3: CHAT E TAREFAS (COM ATUALIZAÇÃO AUTOMÁTICA)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -319,7 +310,15 @@ if tipo_chat == "🏢 Canais de Setor":
         return res.data
     
     lista_canais = obter_canais()
-    mapa_canais = {f"{c['icone']} #{c['nome']}": c for c in lista_canais}
+    
+    # Contagem rápida de mensagens para exibir alertas visuais nos canais
+    mapa_canais = {}
+    for c in lista_canais:
+        msgs_canal = supabase.table("mensagens").select("id", count="exact").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
+        qtd = len(msgs_canal)
+        label = f"{c['icone']} #{c['nome']}" + (f" 🔴 ({qtd})" if qtd > 0 else "")
+        mapa_canais[label] = c
+
     canal_nome_sel = st.sidebar.radio("Selecione o canal:", list(mapa_canais.keys()))
     obj_canal = mapa_canais[canal_nome_sel]
     canal_id = obj_canal['id']
@@ -336,11 +335,14 @@ if tipo_chat == "🏢 Canais de Setor":
     if len(membros_canal) > 5:
         st.sidebar.caption(f"...e mais {len(membros_canal)-5} pessoas")
         
-    titulo_chat = f"Conversa em {canal_nome_sel}"
+    titulo_chat = f"Conversa em #{canal_nome_limpo}"
 
 else:
     outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
-    mapa_dms = {f"👤 {u['nome']} ({u['setor']})": u for u in outros_usuarios}
+    mapa_dms = {}
+    for u in outros_usuarios:
+        label_dm = f"👤 {u['nome']} ({u['setor']})"
+        mapa_dms[label_dm] = u
     
     usuario_dm_selecionado = st.sidebar.selectbox("Mandar mensagem para:", list(mapa_dms.keys()))
     destinatario = mapa_dms[usuario_dm_selecionado]
@@ -362,26 +364,6 @@ with col_chat:
             res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data
             res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
             mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
-
-        # Sistema de Notificação Push via JavaScript seguro sem conflito de chaves
-        if mensagens and not modo_silencioso:
-            ultima_msg = mensagens[-1]
-            if ultima_msg['usuario_nome'] != nome_formatado_logado:
-                texto_notif = (ultima_msg.get('texto') or 'Enviou um anexo.').replace('"', '\\"')
-                autor_notif = ultima_msg['usuario_nome'].replace('"', '\\"')
-                js_code = f"""
-                    <script>
-                        if (window.Notification && Notification.permission === "granted") {{
-                            if (document.hidden) {{
-                                new Notification("{autor_notif}", {{
-                                    body: "{texto_notif}",
-                                    icon: "💬"
-                                }});
-                            }}
-                        }}
-                    </script>
-                """
-                st.markdown(js_code, unsafe_allow_html=True)
 
         for msg in mensagens:
             is_me = msg['usuario_nome'] == nome_formatado_logado
