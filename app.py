@@ -207,7 +207,7 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs)
+# NAVEGAÇÃO CHAT (CANAIS / DMs) COM CONTADORES DE NÃO LIDAS
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -216,8 +216,19 @@ membros_canal = []
 if tipo_chat == "🏢 Canais de Setor":
     st.sidebar.divider()
     st.sidebar.subheader("Canal:")
-    canais = supabase.table("canais").select("*").order("id").execute().data
-    mapa_canais = {f"{c['icone']} #{c['nome']}": c for c in canais}
+    canais = supabase.table("canais").select("*").order("id").execute().data or []
+    
+    # Mapeia canais adicionando contagem de mensagens indicadoras
+    mapa_canais = {}
+    for c in canais:
+        # Busca contagem de mensagens do canal
+        msgs_canal = supabase.table("mensagens").select("id", count="exact").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
+        qtd_msgs = len(msgs_canal)
+        
+        badge = f" 🔴 ({qtd_msgs})" if qtd_msgs > 0 else ""
+        label = f"{c['icone']} #{c['nome']}{badge}"
+        mapa_canais[label] = c
+
     canal_nome_sel = st.sidebar.radio("Selecione:", list(mapa_canais.keys()), label_visibility="collapsed")
     obj_canal = mapa_canais[canal_nome_sel]
     canal_id = obj_canal['id']
@@ -228,7 +239,17 @@ if tipo_chat == "🏢 Canais de Setor":
 else:
     st.sidebar.divider()
     outros = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
-    mapa_dms = {f"👤 {u['nome']} ({u['setor']})": u for u in outros}
+    
+    mapa_dms = {}
+    for u in outros:
+        # Conta mensagens diretas não lidas recebidas deste usuário
+        dm_nao_lidas = supabase.table("mensagens").select("id", count="exact").eq("usuario_nome", u['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
+        qtd_dm = len(dm_nao_lidas)
+        badge_dm = f" 🔴 ({qtd_dm})" if qtd_dm > 0 else ""
+        
+        label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
+        mapa_dms[label_dm] = u
+
     usuario_dm_sel = st.sidebar.selectbox("Falar com:", list(mapa_dms.keys()))
     destinatario = mapa_dms[usuario_dm_sel]
     titulo_chat = f"Conversa com {destinatario['nome']}"
@@ -247,14 +268,10 @@ with col_chat:
             if tipo_chat == "🏢 Canais de Setor":
                 mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
             else:
-                # Consulta otimizada e correta para DMs utilizando o ID do destinatario
                 res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
                 res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
-                
-                # Fallback caso tenha mensagens antigas gravadas apenas por nome
                 res3 = supabase.table("mensagens").select("*").eq("usuario_nome", destinatario['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
                 
-                # Unifica e remove duplicatas ordenando por data
                 todas_mensagens = {m['id']: m for m in (res1 + res2 + res3)}
                 mensagens = sorted(list(todas_mensagens.values()), key=lambda x: x['criado_em'])
 
@@ -296,7 +313,7 @@ with col_chat:
 
         renderizar_mensagens()
         
-        # SCRIPT JAVASCRIPT AUTOMÁTICO PARA ROLAR O CHAT PARA O FINAL
+        # SCRIPT JAVASCRIPT AUTOMÁTICO PARA ROLAGEM AUTOMÁTICA ATÉ O FINAL
         components.html("""
             <script>
                 const doc = window.parent.document;
