@@ -42,8 +42,6 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
-if "uploader_key" not in st.session_state:
-    st.session_state["uploader_key"] = 0
 
 def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
@@ -130,7 +128,6 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
     st.session_state["usuario_logado"] = None
     st.rerun()
 
-# TEMAS E CONFIGURAÇÃO
 tema_escolhido = st.sidebar.selectbox("🎨 Tema:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
@@ -289,8 +286,8 @@ with col_chat:
 
     renderizar_mensagens()
     
-    # CHAT INPUT INTUITIVO (ENVIO COM ENTER)
-    prompt = st.chat_input("Digite sua mensagem e aperte Enter...")
+    # O st.chat_input fica fixo automaticamente no rodapé da página/coluna
+    prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_principal")
     if prompt:
         supabase.table("mensagens").insert({
             "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else None,
