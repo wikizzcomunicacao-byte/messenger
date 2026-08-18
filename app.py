@@ -14,7 +14,6 @@ st.set_page_config(
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
-    # Tenta usar a Service Key (evita bloqueios de RLS no Storage) ou a chave pública
     key = st.secrets.get("SUPABASE_SERVICE_KEY", st.secrets["SUPABASE_KEY"])
     return create_client(url, key)
 
@@ -125,7 +124,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO (INCLUI BLOQUEIO DO BOTÃO DE RECOLHER)
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -350,7 +349,7 @@ with col_chat:
             if msg.get('texto'):
                 st.write(msg['texto'])
 
-            # EXIBIÇÃO DE ANEXOS (CORRIGIDO PARA use_container_width)
+            # EXIBIÇÃO DE ANEXOS
             if msg.get("arquivo_url"):
                 tipo_arq = msg.get("arquivo_tipo", "") or ""
                 url_arq = msg.get("arquivo_url")
@@ -360,7 +359,7 @@ with col_chat:
                 elif "audio" in tipo_arq:
                     st.audio(url_arq)
                 else:
-                    st.markdown(f"📎 [Baixar Arquivo / Documento]({url_arq})")
+                    st.markdown(f"📎 [Baixar / Visualizar Arquivo]({url_arq})")
 
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
@@ -393,14 +392,16 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM / ANEXO
-    with st.form("form_envio_mensagem", clear_on_submit=True):
-        prompt = st.text_input("Digite sua mensagem...", key="input_texto_msg")
+    # ENVIAR NOVA MENSAGEM / ANEXO (UPLOAD FORA DO FORM PARA PRESERVAR OS BYTES DO PDF)
+    with st.expander("📎 Anexar Arquivo (PDF, Imagem, Documento, Áudio)"):
         arquivo_enviado = st.file_uploader(
-            "📎 Anexar Arquivo (Imagem, PDF, Documento, Áudio)", 
+            "Selecione o arquivo do seu computador:", 
             type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"],
             key=f"uploader_{st.session_state['uploader_key']}"
         )
+
+    with st.form("form_envio_mensagem", clear_on_submit=True):
+        prompt = st.text_input("Digite sua mensagem...", key="input_texto_msg")
 
         col_opt1, col_opt2 = st.columns(2)
         with col_opt1:
@@ -419,10 +420,16 @@ with col_chat:
                 try:
                     nome_arquivo = f"{int(datetime.now().timestamp())}_{arquivo_enviado.name}"
                     bytes_data = arquivo_enviado.getvalue()
+                    content_type = arquivo_enviado.type or "application/octet-stream"
                     
-                    supabase.storage.from_("anexos").upload(nome_arquivo, bytes_data)
+                    # Upload para o Supabase Storage garantindo o Content-Type exato
+                    supabase.storage.from_("anexos").upload(
+                        path=nome_arquivo, 
+                        file=bytes_data, 
+                        file_options={"content-type": content_type}
+                    )
                     url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
-                    tipo_arquivo = arquivo_enviado.type
+                    tipo_arquivo = content_type
                 except Exception as ex:
                     st.error(f"Erro ao subir arquivo: {ex}")
 
@@ -440,7 +447,6 @@ with col_chat:
             supabase.table("mensagens").insert(nova_msg).execute()
             registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
             
-            # Incrementa a chave para descarregar o uploader e evitar reenvios automáticos
             st.session_state["uploader_key"] += 1
             st.rerun()
 
