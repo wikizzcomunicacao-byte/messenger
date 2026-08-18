@@ -88,6 +88,8 @@ PALETAS = {
 st.sidebar.title("👤 Perfil Conectado")
 st.sidebar.markdown(f"**{usuario_atual['nome']}**")
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
+if usuario_atual.get("eh_admin"):
+    st.sidebar.success("👑 Administrador do Sistema")
 
 if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
     st.session_state["autenticado"] = False
@@ -202,7 +204,6 @@ with col_chat:
                 leituras = msg.get("leituras_confirmadas") or []
                 total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
                 
-                # Identifica se o usuário logado pertence a este setor do canal
                 ids_membros_canal = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
                 eh_membro_do_setor = usuario_atual['id'] in ids_membros_canal
 
@@ -222,6 +223,12 @@ with col_chat:
 
             if msg.get("tempo_expiracao_minutos"):
                 st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
+
+            # 🗑️ PERMISSÃO DE EXCLUSÃO (Apenas Administrador ou Autor da mensagem)
+            if usuario_atual.get("eh_admin") or is_me:
+                if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
+                    supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
+                    st.rerun()
 
     # ENVIAR NOVA MENSAGEM
     with st.container():
@@ -273,7 +280,7 @@ with col_tarefas:
                     eh_membro = usuario_atual['id'] in ids_membros_grupo
                     eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
                     
-                    if eh_membro or eh_responsavel:
+                    if eh_membro or eh_responsavel or usuario_atual.get("eh_admin"):
                         supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
                         st.success("Tarefa concluída!")
                         st.rerun()
