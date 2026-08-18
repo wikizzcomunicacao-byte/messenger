@@ -349,7 +349,7 @@ with col_chat:
             if msg.get('texto'):
                 st.write(msg['texto'])
 
-            # EXIBIÇÃO DE ANEXOS
+            # EXIBIÇÃO DE ANEXOS (COM BOTAO DE DOWNLOAD DIRETO PARA PDFs E DOCUMENTOS)
             if msg.get("arquivo_url"):
                 tipo_arq = msg.get("arquivo_tipo", "") or ""
                 url_arq = msg.get("arquivo_url")
@@ -359,7 +359,24 @@ with col_chat:
                 elif "audio" in tipo_arq:
                     st.audio(url_arq)
                 else:
-                    st.markdown(f"📎 [Baixar / Visualizar Arquivo PDF/Documento]({url_arq})")
+                    nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento.pdf"
+                    st.markdown(
+                        f"""
+                        <a href="{url_arq}" download="{nome_display}" target="_blank" style="
+                            display: inline-block;
+                            padding: 8px 16px;
+                            background-color: {p['primary']};
+                            color: white;
+                            text-decoration: none;
+                            border-radius: 6px;
+                            font-weight: bold;
+                            margin-top: 5px;
+                        ">
+                            📥 Baixar Arquivo ({nome_display})
+                        </a>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
@@ -392,7 +409,7 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
-    # ENVIAR NOVA MENSAGEM
+    # ENVIAR NOVA MENSAGEM / ANEXO
     with st.expander("📎 Anexar Arquivo (PDF, Imagem, Documento, Áudio)"):
         arquivo_enviado = st.file_uploader(
             "Selecione o arquivo do seu computador:", 
@@ -418,13 +435,11 @@ with col_chat:
 
             if arquivo_enviado is not None:
                 try:
-                    # Gera um identificador único de timestamp
                     timestamp_atual = int(datetime.now().timestamp())
                     nome_arquivo = f"{timestamp_atual}_{arquivo_enviado.name}"
                     bytes_data = arquivo_enviado.getvalue()
                     content_type = arquivo_enviado.type or "application/pdf"
 
-                    # Upload com permissão de substituição (upsert=true) e Content-Type explícito
                     supabase.storage.from_("anexos").upload(
                         path=nome_arquivo, 
                         file=bytes_data, 
