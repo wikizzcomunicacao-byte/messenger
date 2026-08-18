@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
+import pytz
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
@@ -48,8 +49,8 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# FUSO HORÁRIO DO BRASÍLIA (UTC-3 fixo, sem erros de tzdata)
-fuso_brasilia = timezone(timedelta(hours=-3))
+# FUSO HORÁRIO DE BRASÍLIA
+fuso_brasilia = pytz.timezone("America_Sao_Paulo")
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
 if not st.session_state["autenticado"]:
@@ -298,7 +299,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS
+# TELA 3: CHAT E TAREFAS (COM ATUALIZAÇÃO AUTOMÁTICA / INSTANTÂNEA)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -344,93 +345,98 @@ with col_chat:
     st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
-    if tipo_chat == "🏢 Canais de Setor":
-        mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
-        mensagens = mensagens_res.data
-    else:
-        res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data
-        res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
-        mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
+    # FRAGMENTO DE ATUALIZAÇÃO AUTOMÁTICA A CADA 3 SEGUNDOS (CHAT INSTANTÂNEO)
+    @st.fragment(run_every=3)
+    def renderizar_mensagens():
+        if tipo_chat == "🏢 Canais de Setor":
+            mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
+            mensagens = mensagens_res.data
+        else:
+            res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data
+            res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
+            mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-    agora = datetime.now(timezone.utc)
-    for msg in mensagens:
-        if msg.get("tempo_expiracao_minutos"):
-            criado_em = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
-            expira_em = criado_em + timedelta(minutes=msg["tempo_expiracao_minutos"])
-            if agora > expira_em:
-                supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
-                st.rerun()
-
-        is_me = msg['usuario_nome'] == nome_formatado_logado
-        avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
-        
-        with st.chat_message("user", avatar=avatar):
-            if msg.get("eh_comunicado"):
-                st.warning("📌 **COMUNICADO OFICIAL**")
-            
-            st.markdown(f"**{msg['usuario_nome']}**")
-            if msg.get('texto'):
-                st.write(msg['texto'])
-
-            # EXIBIÇÃO DE ANEXOS (COM BOTÃO DE DOWNLOAD DIRETO)
-            if msg.get("arquivo_url"):
-                tipo_arq = msg.get("arquivo_tipo", "") or ""
-                url_arq = msg.get("arquivo_url")
-                
-                if "image" in tipo_arq:
-                    st.image(url_arq, use_container_width=True)
-                elif "audio" in tipo_arq:
-                    st.audio(url_arq)
-                else:
-                    nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento.pdf"
-                    st.markdown(
-                        f"""
-                        <a href="{url_arq}" download="{nome_display}" target="_blank" style="
-                            display: inline-block;
-                            padding: 8px 16px;
-                            background-color: {p['primary']};
-                            color: white;
-                            text-decoration: none;
-                            border-radius: 6px;
-                            font-weight: bold;
-                            margin-top: 5px;
-                        ">
-                            📥 Baixar Arquivo ({nome_display})
-                        </a>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-            if msg.get("eh_comunicado"):
-                leituras = msg.get("leituras_confirmadas") or []
-                total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
-                
-                ids_membros_canal = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
-                eh_membro_do_setor = usuario_atual['id'] in ids_membros_canal
-
-                if usuario_atual['id'] not in leituras:
-                    if eh_membro_do_setor:
-                        if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
-                            leituras.append(usuario_atual['id'])
-                            supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
-                            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONFIRMAR_LEITURA", f"Confirmou leitura da mensagem ID {msg['id']}")
-                            st.rerun()
-                    else:
-                        st.caption("🔒 *Apenas colaboradores pertencentes a este setor podem confirmar leitura.*")
-                else:
-                    st.caption("✔️ Você já confirmou leitura deste comunicado.")
-                
-                st.progress(len(leituras) / max(total_alvo, 1))
-                st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores do setor leram.")
-
+        agora = datetime.now(timezone.utc)
+        for msg in mensagens:
             if msg.get("tempo_expiracao_minutos"):
-                st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
-
-            if usuario_atual.get("eh_admin"):
-                if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
+                criado_em = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
+                expira_em = criado_em + timedelta(minutes=msg["tempo_expiracao_minutos"])
+                if agora > expira_em:
                     supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
-                    registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
+
+            is_me = msg['usuario_nome'] == nome_formatado_logado
+            avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
+            
+            with st.chat_message("user", avatar=avatar):
+                if msg.get("eh_comunicado"):
+                    st.warning("📌 **COMUNICADO OFICIAL**")
+                
+                st.markdown(f"**{msg['usuario_nome']}**")
+                if msg.get('texto'):
+                    st.write(msg['texto'])
+
+                # EXIBIÇÃO DE ANEXOS (COM BOTÃO DE DOWNLOAD DIRETO)
+                if msg.get("arquivo_url"):
+                    tipo_arq = msg.get("arquivo_tipo", "") or ""
+                    url_arq = msg.get("arquivo_url")
+                    
+                    if "image" in tipo_arq:
+                        st.image(url_arq, use_container_width=True)
+                    elif "audio" in tipo_arq:
+                        st.audio(url_arq)
+                    else:
+                        nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento.pdf"
+                        st.markdown(
+                            f"""
+                            <a href="{url_arq}" download="{nome_display}" target="_blank" style="
+                                display: inline-block;
+                                padding: 8px 16px;
+                                background-color: {p['primary']};
+                                color: white;
+                                text-decoration: none;
+                                border-radius: 6px;
+                                font-weight: bold;
+                                margin-top: 5px;
+                            ">
+                                📥 Baixar Arquivo ({nome_display})
+                            </a>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                if msg.get("eh_comunicado"):
+                    leituras = msg.get("leituras_confirmadas") or []
+                    total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
+                    
+                    ids_membros_canal = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
+                    eh_membro_do_setor = usuario_atual['id'] in ids_membros_canal
+
+                    if usuario_atual['id'] not in leituras:
+                        if eh_membro_do_setor:
+                            if st.button("✅ Confirmar Leitura / Estar Ciente", key=f"read_{msg['id']}"):
+                                leituras.append(usuario_atual['id'])
+                                supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
+                                registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONFIRMAR_LEITURA", f"Confirmou leitura da mensagem ID {msg['id']}")
+                                st.rerun()
+                        else:
+                            st.caption("🔒 *Apenas colaboradores pertencentes a este setor podem confirmar leitura.*")
+                    else:
+                        st.caption("✔️ Você já confirmou leitura deste comunicado.")
+                    
+                    st.progress(len(leituras) / max(total_alvo, 1))
+                    st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores do setor leram.")
+
+                if msg.get("tempo_expiracao_minutos"):
+                    st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
+
+                if usuario_atual.get("eh_admin"):
+                    if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
+                        supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
+                        registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
+                        st.rerun()
+
+    renderizar_mensagens()
 
     # ENVIAR NOVA MENSAGEM / ANEXO
     with st.expander("📎 Anexar Arquivo (PDF, Imagem, Documento, Áudio)"):
@@ -493,31 +499,36 @@ with col_chat:
 with col_tarefas:
     st.subheader("📋 Tarefas do Grupo")
     
-    c_id_tarefa = canal_id if canal_id else 1
-    tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
-    tarefas = tarefas_res.data
-    
-    ids_membros_grupo = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
-    
-    for tarefa in tarefas:
-        with st.container(border=True):
-            status_cor = "🟢" if tarefa['status'] == "Concluído" else "⏳"
-            st.markdown(f"{status_cor} **{tarefa['status']}**")
-            st.write(tarefa['titulo'])
-            st.caption(f"Atribuído a: {tarefa.get('atribuido_a', 'Geral')}")
-            
-            if tarefa['status'] != "Concluído":
-                if st.button("Marcar Concluída", key=f"t_{tarefa['id']}"):
-                    eh_membro = usuario_atual['id'] in ids_membros_grupo
-                    eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
-                    
-                    if eh_membro or eh_responsavel or usuario_atual.get("eh_admin"):
-                        supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
-                        registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONCLUIR_TAREFA", f"Concluiu a tarefa ID {tarefa['id']}")
-                        st.success("Tarefa concluída!")
-                        st.rerun()
-                    else:
-                        st.error("🔒 Permissão negada: Somente membros deste grupo podem concluir a tarefa.")
+    # FRAGMENTO DE TAREFAS (ATUALIZAÇÃO AUTOMÁTICA A CADA 3 SEGUNDOS)
+    @st.fragment(run_every=3)
+    def renderizar_tarefas():
+        c_id_tarefa = canal_id if canal_id else 1
+        tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
+        tarefas = tarefas_res.data
+        
+        ids_membros_grupo = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
+        
+        for tarefa in tarefas:
+            with st.container(border=True):
+                status_cor = "🟢" if tarefa['status'] == "Concluído" else "⏳"
+                st.markdown(f"{status_cor} **{tarefa['status']}**")
+                st.write(tarefa['titulo'])
+                st.caption(f"Atribuído a: {tarefa.get('atribuido_a', 'Geral')}")
+                
+                if tarefa['status'] != "Concluído":
+                    if st.button("Marcar Concluída", key=f"t_{tarefa['id']}"):
+                        eh_membro = usuario_atual['id'] in ids_membros_grupo
+                        eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
+                        
+                        if eh_membro or eh_responsavel or usuario_atual.get("eh_admin"):
+                            supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
+                            registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "CONCLUIR_TAREFA", f"Concluiu a tarefa ID {tarefa['id']}")
+                            st.success("Tarefa concluída!")
+                            st.rerun()
+                        else:
+                            st.error("🔒 Permissão negada: Somente membros deste grupo podem concluir a tarefa.")
+
+    renderizar_tarefas()
 
     with st.expander("+ Criar Nova Tarefa"):
         nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
