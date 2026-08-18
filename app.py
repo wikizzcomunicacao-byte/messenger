@@ -27,7 +27,7 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# TELA DE LOGIN (Bloqueia o app se não estiver logado)
+# TELA DE LOGIN
 if not st.session_state["autenticado"]:
     st.markdown("<h2 style='text-align: center;'>🔒 Login - Chat Corporativo</h2>", unsafe_allow_html=True)
     
@@ -56,10 +56,9 @@ if not st.session_state["autenticado"]:
 # ---------------------------------------------------------
 # APLICATIVO LIBERADO APÓS LOGIN
 # ---------------------------------------------------------
-
 usuario_atual = st.session_state["usuario_logado"]
 
-# 3. PALETAS DE CORES
+# PALETAS DE CORES
 PALETAS = {
     "🟢 Escuro Padrão (WhatsApp)": {
         "bg_app": "#0b141a", "bg_sidebar": "#111b21", "bg_msg": "#202c33", "primary": "#00a884", "text": "#e9edef"
@@ -78,7 +77,7 @@ PALETAS = {
     }
 }
 
-# BARRA LATERAL - IDENTIFICAÇÃO E LOGOUT
+# BARRA LATERAL - PERFIL
 st.sidebar.title("👤 Perfil Conectado")
 st.sidebar.markdown(f"**{usuario_atual['nome']}**")
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
@@ -88,7 +87,7 @@ if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
     st.session_state["usuario_logado"] = None
     st.rerun()
 
-# SELETOR DE TEMAS
+# TEMAS
 st.sidebar.divider()
 st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
@@ -108,31 +107,55 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# CARREGAMENTO DOS CANAIS
+# TIPO DE CONVERSA (CANAL OU MENSAGEM DIRETA)
 st.sidebar.divider()
-st.sidebar.title("🏢 Canais por Setor")
+tipo_chat = st.sidebar.radio("Modo de Conversa:", ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"])
 
-def obter_canais():
-    res = supabase.table("canais").select("*").order("id").execute()
-    return res.data
+canal_id = None
+destinatario = None
 
-lista_canais = obter_canais()
-mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
-canal_selecionado = st.sidebar.radio("Selecione a sala:", list(mapa_canais.keys()))
-canal_id = mapa_canais[canal_selecionado]
+if tipo_chat == "🏢 Canais de Setor":
+    def obter_canais():
+        res = supabase.table("canais").select("*").order("id").execute()
+        return res.data
+    
+    lista_canais = obter_canais()
+    mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
+    canal_selecionado = st.sidebar.radio("Selecione o canal:", list(mapa_canais.keys()))
+    canal_id = mapa_canais[canal_selecionado]
+    titulo_chat = f"Conversa em {canal_selecionado}"
+
+else:
+    todos_usuarios = buscar_usuarios()
+    # Filtrar para não listar o próprio usuário logado
+    outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
+    mapa_dms = {f"👤 {u['nome']} ({u['setor']})": u for u in outros_usuarios}
+    
+    usuario_dm_selecionado = st.sidebar.selectbox("Mandar mensagem para:", list(mapa_dms.keys()))
+    destinatario = mapa_dms[usuario_dm_selecionado]
+    titulo_chat = f"Conversa Privada com {destinatario['nome']}"
 
 # INTERFACE PRINCIPAL
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
-    st.subheader(f"Conversa em {canal_selecionado}")
-    
-    # Histórico de mensagens
-    mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).order("criado_em", desc=False).execute()
-    mensagens = mensagens_res.data
-
+    st.subheader(titulo_chat)
     nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
 
+    if tipo_chat == "🏢 Canais de Setor":
+        # Buscar mensagens do canal
+        mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute()
+        mensagens = mensagens_res.data
+    else:
+        # Buscar mensagens privadas trocadas entre os dois usuários
+        # Mensagens de mim para ele OU dele para mim
+        res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data
+        res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
+        
+        # Junta e ordena por data
+        mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
+
+    # Exibir histórico de mensagens
     for msg in mensagens:
         is_me = msg['usuario_nome'] == nome_formatado_logado
         avatar = "🟢" if is_me else "👤"
@@ -141,19 +164,30 @@ with col_chat:
             st.write(msg['texto'])
 
     # Enviar mensagem
-    if prompt := st.chat_input(f"Enviar mensagem em {canal_selecionado}..."):
-        nova_msg = {
-            "canal_id": canal_id,
-            "usuario_nome": nome_formatado_logado,
-            "texto": prompt
-        }
+    if prompt := st.chat_input("Digite sua mensagem..."):
+        if tipo_chat == "🏢 Canais de Setor":
+            nova_msg = {
+                "canal_id": canal_id,
+                "usuario_nome": nome_formatado_logado,
+                "texto": prompt,
+                "destinatario_id": None
+            }
+        else:
+            nova_msg = {
+                "canal_id": 1, # Canal geral padrão para DMs
+                "usuario_nome": nome_formatado_logado,
+                "texto": prompt,
+                "destinatario_id": destinatario['id']
+            }
         supabase.table("mensagens").insert(nova_msg).execute()
         st.rerun()
 
 with col_tarefas:
-    st.subheader("📋 Tarefas do Setor")
+    st.subheader("📋 Tarefas")
     
-    tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", canal_id).order("id", desc=True).execute()
+    # Exibir tarefas do setor se estiver em canal, ou tarefas gerais se em DM
+    c_id_tarefa = canal_id if canal_id else 1
+    tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
     for tarefa in tarefas:
@@ -174,7 +208,7 @@ with col_tarefas:
         if st.button("Salvar Tarefa"):
             if nova_tarefa_titulo:
                 supabase.table("tarefas").insert({
-                    "canal_id": canal_id,
+                    "canal_id": c_id_tarefa,
                     "titulo": nova_tarefa_titulo,
                     "atribuido_a": responsavel,
                     "status": "Pendente"
