@@ -425,23 +425,17 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- PAINEL DE ENVIO COMPACTO (COMUNICADO LIMPO COM TOOLTIP E ANEXO) ---
+    # --- PAINEL DE ENVIO COMPACTO (POPOVERS ALINHADOS E LIMPOS) ---
     st.divider()
     
-    col_input, col_com, col_clip, col_btn = st.columns([5.2, 0.8, 0.8, 0.8])
+    col_input, col_com, col_clip, col_btn = st.columns([5.4, 0.6, 0.6, 0.8])
 
     with col_input:
         prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
     with col_com:
-        st.markdown(
-            """
-            <div title="Marcar como Comunicado Oficial" style="display: flex; align-items: center; justify-content: center; height: 100%; cursor: pointer; padding-top: 5px;">
-            """, 
-            unsafe_allow_html=True
-        )
-        eh_comunicado = st.checkbox("📢", key="chk_comunicado", label_visibility="collapsed")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.popover("📢", help="Marcar como Comunicado Oficial"):
+            eh_comunicado = st.checkbox("Tornar Comunicado Oficial", key="chk_comunicado_popover")
 
     with col_clip:
         with st.popover("📎", help="Anexar arquivo"):
@@ -454,6 +448,10 @@ with col_chat:
 
     with col_btn:
         btn_enviar = st.button("🚀", help="Enviar Mensagem")
+
+    # Garante que a variável eh_comunicado exista mesmo se o popover não for aberto
+    if 'chk_comunicado_popover' not in st.session_state:
+        st.session_state['chk_comunicado_popover'] = False
 
     if btn_enviar and (prompt or 'arquivo_enviado' in locals() and arquivo_enviado is not None):
         url_publica = None
@@ -481,7 +479,7 @@ with col_chat:
             "usuario_nome": nome_formatado_logado,
             "texto": prompt if prompt else "",
             "destinatario_id": destinatario['id'] if destinatario else None,
-            "eh_comunicado": eh_comunicado,
+            "eh_comunicado": st.session_state.get('chk_comunicado_popover', False),
             "tempo_expiracao_minutos": None,
             "leituras_confirmadas": [],
             "arquivo_url": url_publica,
