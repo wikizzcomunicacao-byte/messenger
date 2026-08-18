@@ -289,15 +289,27 @@ with col_chat:
 
         renderizar_mensagens()
         
-        # SCRIPT JS PARA ROLAGEM AUTOMÁTICA
+        # SCRIPT JAVASCRIPT AUTOMÁTICO PARA FORÇAR O SCROLL PARA O FINAL A CADA ATUALIZAÇÃO
         components.html("""
             <script>
                 const doc = window.parent.document;
-                function scrollChat() {
-                    const scrollables = doc.querySelectorAll('div[data-testid="stVerticalBlock"] div[style*="overflow"]');
-                    scrollables.forEach(s => s.scrollTop = s.scrollHeight);
+                function autoScroll() {
+                    const containers = doc.querySelectorAll('div[data-testid="stVerticalBlock"]');
+                    containers.forEach(el => {
+                        if (el.scrollHeight > el.clientHeight && el.style.overflow !== 'hidden') {
+                            el.scrollTop = el.scrollHeight;
+                        }
+                    });
+                    const scrollBoxes = doc.querySelectorAll('div[data-testid="stVerticalBlockBorderWrapper"]');
+                    scrollBoxes.forEach(box => {
+                        const inner = box.querySelector('div[style*="overflow"]');
+                        if (inner) {
+                            inner.scrollTop = inner.scrollHeight;
+                        }
+                    });
                 }
-                setTimeout(scrollChat, 100);
+                setTimeout(autoScroll, 50);
+                setTimeout(autoScroll, 200);
             </script>
         """, height=0, width=0)
     
