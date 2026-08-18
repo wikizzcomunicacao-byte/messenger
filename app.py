@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página em modo estendido
+# Configuração da página
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
 # 1. CONEXÃO COM O SUPABASE
@@ -14,10 +14,52 @@ def init_supabase() -> Client:
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error("⚠️ Conexão pendente: Configure as chaves SUPABASE_URL e SUPABASE_KEY nos Secrets do Streamlit.")
+    st.error("⚠️ Erro de conexão com o Supabase.")
     st.stop()
 
-# 2. PALETAS DE CORES (5 OPÇÕES)
+# 2. GERENCIAMENTO DE SESSÃO / LOGIN
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+if "usuario_logado" not in st.session_state:
+    st.session_state["usuario_logado"] = None
+
+def buscar_usuarios():
+    res = supabase.table("usuarios").select("*").order("nome").execute()
+    return res.data
+
+# TELA DE LOGIN (Bloqueia o app se não estiver logado)
+if not st.session_state["autenticado"]:
+    st.markdown("<h2 style='text-align: center;'>🔒 Login - Chat Corporativo</h2>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("form_login"):
+            usuarios = buscar_usuarios()
+            mapa_usuarios = {f"{u['nome']} ({u['setor']})": u for u in usuarios}
+            
+            usuario_selecionado = st.selectbox("Selecione seu perfil:", list(mapa_usuarios.keys()))
+            senha_input = st.text_input("Sua senha:", type="password")
+            
+            btn_entrar = st.form_submit_button("Entrar no Chat", use_container_width=True)
+            
+            if btn_entrar:
+                dados_usuario = mapa_usuarios[usuario_selecionado]
+                if senha_input == dados_usuario.get("senha", "123456"):
+                    st.session_state["autenticado"] = True
+                    st.session_state["usuario_logado"] = dados_usuario
+                    st.success("Login realizado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("Senha incorreta. Tente novamente.")
+    st.stop()
+
+# ---------------------------------------------------------
+# APLICATIVO LIBERADO APÓS LOGIN
+# ---------------------------------------------------------
+
+usuario_atual = st.session_state["usuario_logado"]
+
+# 3. PALETAS DE CORES
 PALETAS = {
     "🟢 Escuro Padrão (WhatsApp)": {
         "bg_app": "#0b141a", "bg_sidebar": "#111b21", "bg_msg": "#202c33", "primary": "#00a884", "text": "#e9edef"
@@ -36,12 +78,23 @@ PALETAS = {
     }
 }
 
-# 3. SELETOR DE TEMAS NA BARRA LATERAL
+# BARRA LATERAL - IDENTIFICAÇÃO E LOGOUT
+st.sidebar.title("👤 Perfil Conectado")
+st.sidebar.markdown(f"**{usuario_atual['nome']}**")
+st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
+
+if st.sidebar.button("🚪 Sair / Logoff", use_container_width=True):
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = None
+    st.rerun()
+
+# SELETOR DE TEMAS
+st.sidebar.divider()
 st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# 4. APLICAÇÃO DE CSS DINÂMICO
+# CSS DINÂMICO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -55,28 +108,7 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# 5. GERENCIAMENTO DE IDENTIDADE DO USUÁRIO (VIA BANCO DE DADOS)
-st.sidebar.divider()
-st.sidebar.title("👤 Identificação")
-
-def obter_usuarios():
-    res = supabase.table("usuarios").select("*").order("nome").execute()
-    return res.data
-
-try:
-    lista_usuarios = obter_usuarios()
-    if lista_usuarios:
-        opcoes_usuarios = [f"{u['nome']} ({u['setor']})" for u in lista_usuarios]
-        usuario_selecionado = st.sidebar.selectbox("Selecione seu nome:", opcoes_usuarios)
-        st.session_state["usuario_nome"] = usuario_selecionado
-    else:
-        st.sidebar.warning("Nenhum usuário cadastrado na tabela 'usuarios'.")
-        st.session_state["usuario_nome"] = ""
-except Exception as e:
-    st.sidebar.error(f"Erro ao carregar lista de usuários: {e}")
-    st.session_state["usuario_nome"] = ""
-
-# 6. CARREGAMENTO DOS CANAIS DO SUPABASE
+# CARREGAMENTO DOS CANAIS
 st.sidebar.divider()
 st.sidebar.title("🏢 Canais por Setor")
 
@@ -84,54 +116,43 @@ def obter_canais():
     res = supabase.table("canais").select("*").order("id").execute()
     return res.data
 
-try:
-    lista_canais = obter_canais()
-    if not lista_canais:
-        st.sidebar.warning("Nenhum canal encontrado na tabela 'canais'.")
-        st.stop()
-        
-    mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
-    canal_selecionado = st.sidebar.radio("Selecione a sala:", list(mapa_canais.keys()))
-    canal_id = mapa_canais[canal_selecionado]
-except Exception as e:
-    st.sidebar.error(f"Erro ao conectar com o Supabase: {e}")
-    st.stop()
+lista_canais = obter_canais()
+mapa_canais = {f"{c['icone']} #{c['nome']}": c['id'] for c in lista_canais}
+canal_selecionado = st.sidebar.radio("Selecione a sala:", list(mapa_canais.keys()))
+canal_id = mapa_canais[canal_selecionado]
 
-# 7. INTERFACE PRINCIPAL (CHAT E TAREFAS)
+# INTERFACE PRINCIPAL
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
     st.subheader(f"Conversa em {canal_selecionado}")
     
-    # Buscar histórico de mensagens no Supabase
+    # Histórico de mensagens
     mensagens_res = supabase.table("mensagens").select("*").eq("canal_id", canal_id).order("criado_em", desc=False).execute()
     mensagens = mensagens_res.data
 
-    # Exibir histórico
+    nome_formatado_logado = f"{usuario_atual['nome']} ({usuario_atual['setor']})"
+
     for msg in mensagens:
-        is_me = msg['usuario_nome'] == st.session_state.get("usuario_nome", "")
+        is_me = msg['usuario_nome'] == nome_formatado_logado
         avatar = "🟢" if is_me else "👤"
         with st.chat_message("user", avatar=avatar):
             st.markdown(f"**{msg['usuario_nome']}**")
             st.write(msg['texto'])
 
-    # Envio de nova mensagem
+    # Enviar mensagem
     if prompt := st.chat_input(f"Enviar mensagem em {canal_selecionado}..."):
-        if not st.session_state.get("usuario_nome"):
-            st.warning("Por favor, selecione seu usuário na barra lateral antes de enviar uma mensagem.")
-        else:
-            nova_msg = {
-                "canal_id": canal_id,
-                "usuario_nome": st.session_state["usuario_nome"],
-                "texto": prompt
-            }
-            supabase.table("mensagens").insert(nova_msg).execute()
-            st.rerun()
+        nova_msg = {
+            "canal_id": canal_id,
+            "usuario_nome": nome_formatado_logado,
+            "texto": prompt
+        }
+        supabase.table("mensagens").insert(nova_msg).execute()
+        st.rerun()
 
 with col_tarefas:
     st.subheader("📋 Tarefas do Setor")
     
-    # Buscar tarefas do setor
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", canal_id).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
@@ -147,7 +168,6 @@ with col_tarefas:
                     supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
                     st.rerun()
 
-    # Adicionar nova tarefa
     with st.expander("+ Criar Nova Tarefa"):
         nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
         responsavel = st.text_input("Atribuir a:", placeholder="Ex: Ana / Compras")
