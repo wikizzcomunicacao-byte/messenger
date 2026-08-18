@@ -34,7 +34,7 @@ def registrar_log(usuario_id, usuario_nome, setor, acao, detalhes=""):
             "detalhes": detalhes
         }).execute()
     except Exception:
-        pass  # Evita interrupção caso a tabela ainda não tenha sido criada
+        pass
 
 # 3. GERENCIAMENTO DE SESSÃO / LOGIN
 if "autenticado" not in st.session_state:
@@ -197,13 +197,12 @@ if tipo_chat == "⚙️ Painel de Gestão (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 2: RELATÓRIOS E LOGS DE ACESSO (EXCLUSIVO ADMIN)
+# TELA 2: RELATÓRIOS E LOGS DE ACESSO (ADMIN)
 # ---------------------------------------------------------
 if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.title("📊 Relatórios de Uso e Controle de Logs")
     st.caption("Painel restrito para auditoria e monitoramento de atividades dos colaboradores.")
 
-    # MÉTIRCAS GERAIS
     total_users = len(todos_usuarios)
     msgs_totais = len(supabase.table("mensagens").select("id", count="exact").execute().data or [])
     tarefas_totais = len(supabase.table("tarefas").select("id", count="exact").execute().data or [])
@@ -215,9 +214,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
 
     st.divider()
 
-    # AUDITORIA E LOGS DE ACESSO
     st.subheader("📋 Histórico de Logs de Auditoria")
-    
     logs_res = supabase.table("logs_acesso").select("*").order("criado_em", desc=True).limit(100).execute()
     logs_data = logs_res.data if logs_res.data else []
 
@@ -231,7 +228,6 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
             or busca_log.lower() in str(l.get('setor', '')).lower()
         ]
 
-        # Tabela formatada
         st.dataframe(
             logs_filtrados,
             column_config={
@@ -250,7 +246,7 @@ if tipo_chat == "📊 Relatórios e Logs (Admin)":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA 3: CHAT E TAREFAS (MODO NORMAL)
+# TELA 3: CHAT E TAREFAS (MODO NORMAL COM ANEXOS)
 # ---------------------------------------------------------
 canal_id = None
 destinatario = None
@@ -321,8 +317,22 @@ with col_chat:
                 st.warning("📌 **COMUNICADO OFICIAL**")
             
             st.markdown(f"**{msg['usuario_nome']}**")
-            st.write(msg['texto'])
+            if msg.get('texto'):
+                st.write(msg['texto'])
 
+            # EXIBIÇÃO DE ANEXOS (IMAGENS, ÁUDIOS, DOCUMENTOS)
+            if msg.get("arquivo_url"):
+                tipo_arq = msg.get("arquivo_tipo", "")
+                url_arq = msg.get("arquivo_url")
+                
+                if "image" in tipo_arq:
+                    st.image(url_arq, use_column_width=True)
+                elif "audio" in tipo_arq:
+                    st.audio(url_arq)
+                else:
+                    st.markdown(f"📎 [Baixar Arquivo / Documento]({url_arq})")
+
+            # COMUNICADOS OFICIAIS
             if msg.get("eh_comunicado"):
                 leituras = msg.get("leituras_confirmadas") or []
                 total_alvo = len(membros_canal) if membros_canal else len(todos_usuarios)
@@ -354,9 +364,13 @@ with col_chat:
                     registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "DELETAR_MENSAGEM", f"Apagou a mensagem ID {msg['id']}")
                     st.rerun()
 
+    # ENVIAR NOVA MENSAGEM COM SUPORTE A ANEXOS
     with st.container():
         prompt = st.chat_input("Digite sua mensagem...")
         
+        with st.expander("📎 Anexar Arquivo (Imagem, PDF, Documento, Áudio)"):
+            arquivo_enviado = st.file_uploader("Escolha um arquivo:", type=["png", "jpg", "jpeg", "pdf", "docx", "xlsx", "mp3", "wav"])
+
         col_opt1, col_opt2 = st.columns(2)
         with col_opt1:
             eh_comunicado = st.checkbox("📌 Marcar como Comunicado Oficial")
@@ -369,15 +383,32 @@ with col_chat:
         elif expiracao_opcao == "60 minutos":
             minutos_expira = 60
 
-        if prompt:
+        if prompt or arquivo_enviado:
+            url_publica = None
+            tipo_arquivo = None
+
+            if arquivo_enviado is not None:
+                try:
+                    nome_arquivo = f"{datetime.now().timestamp()}_{arquivo_enviado.name}"
+                    bytes_data = arquivo_enviado.getvalue()
+                    
+                    # Upload para o Supabase Storage
+                    supabase.storage.from_("anexos").upload(nome_arquivo, bytes_data)
+                    url_publica = supabase.storage.from_("anexos").get_public_url(nome_arquivo)
+                    tipo_arquivo = arquivo_enviado.type
+                except Exception as ex:
+                    st.error(f"Erro ao subir arquivo: {ex}")
+
             nova_msg = {
                 "canal_id": canal_id if canal_id else 1,
                 "usuario_nome": nome_formatado_logado,
-                "texto": prompt,
+                "texto": prompt if prompt else "",
                 "destinatario_id": destinatario['id'] if destinatario else None,
                 "eh_comunicado": eh_comunicado,
                 "tempo_expiracao_minutos": minutos_expira,
-                "leituras_confirmadas": []
+                "leituras_confirmadas": [],
+                "arquivo_url": url_publica,
+                "arquivo_tipo": tipo_arquivo
             }
             supabase.table("mensagens").insert(nova_msg).execute()
             registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
