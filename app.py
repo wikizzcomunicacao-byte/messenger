@@ -363,25 +363,25 @@ with col_chat:
             res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
             mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-        # Sistema de Notificação Push via JavaScript caso haja mensagem recente de outro usuário
+        # Sistema de Notificação Push via JavaScript seguro sem conflito de chaves
         if mensagens and not modo_silencioso:
             ultima_msg = mensagens[-1]
             if ultima_msg['usuario_nome'] != nome_formatado_logado:
-                texto_notif = ultima_msg.get('texto') or 'Enviou um anexo.'
-                autor_notif = ultima_msg['usuario_nome']
-                st.markdown(f"""
+                texto_notif = (ultima_msg.get('texto') or 'Enviou um anexo.').replace('"', '\\"')
+                autor_notif = ultima_msg['usuario_nome'].replace('"', '\\"')
+                js_code = f"""
                     <script>
-                        if (window.Notification && Notification.permission === "granted") {
-                            // Dispara apenas se a aba estiver em segundo plano ou para alertar
-                            if (document.hidden) {
+                        if (window.Notification && Notification.permission === "granted") {{
+                            if (document.hidden) {{
                                 new Notification("{autor_notif}", {{
                                     body: "{texto_notif}",
                                     icon: "💬"
                                 }});
-                            }
-                        }
+                            }}
+                        }}
                     </script>
-                """, unsafe_allow_html=True)
+                """
+                st.markdown(js_code, unsafe_allow_html=True)
 
         for msg in mensagens:
             is_me = msg['usuario_nome'] == nome_formatado_logado
@@ -539,7 +539,7 @@ with col_tarefas:
                 
                 if tarefa['status'] != "Concluído":
                     if st.button("Marcar Concluída", key=f"t_{tarefa['id']}"):
-                        eh_membro = usuario_atual['id'] istos_grupo = usuario_atual['id'] in ids_membros_grupo
+                        eh_membro = usuario_atual['id'] in ids_membros_grupo
                         eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
                         
                         if eh_membro or eh_responsavel or usuario_atual.get("eh_admin"):
