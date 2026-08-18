@@ -207,6 +207,9 @@ with col_tarefas:
     tarefas_res = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute()
     tarefas = tarefas_res.data
     
+    # Identificar IDs dos usuários que são membros do grupo atual
+    ids_membros_grupo = [m['id'] for m in membros_canal] if membros_canal else [u['id'] for u in todos_usuarios]
+    
     for tarefa in tarefas:
         with st.container(border=True):
             status_cor = "🟢" if tarefa['status'] == "Concluído" else "⏳"
@@ -216,13 +219,20 @@ with col_tarefas:
             
             if tarefa['status'] != "Concluído":
                 if st.button("Marcar Concluída", key=f"t_{tarefa['id']}"):
-                    supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
-                    st.rerun()
+                    # REGRA: O usuário logado deve ser membro do grupo OU o responsável direto
+                    eh_membro = usuario_atual['id'] in ids_membros_grupo
+                    eh_responsavel = usuario_atual['nome'] in tarefa.get('atribuido_a', '')
+                    
+                    if eh_membro or eh_responsavel:
+                        supabase.table("tarefas").update({"status": "Concluído"}).eq("id", tarefa['id']).execute()
+                        st.success("Tarefa concluída!")
+                        st.rerun()
+                    else:
+                        st.error("🔒 Permissão negada: Somente membros deste grupo podem concluir a tarefa.")
 
     with st.expander("+ Criar Nova Tarefa"):
         nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
         
-        # Opções de membros para atribuir a tarefa
         opcoes_membros = ["Todos do Setor"] + [u['nome'] for u in (membros_canal if membros_canal else todos_usuarios)]
         responsavel_sel = st.selectbox("Atribuir a integrante:", opcoes_membros)
         
