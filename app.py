@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
-import pytz
 
 # Configuração da página - Barra lateral fixa
 st.set_page_config(
@@ -49,8 +48,8 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# FUSO HORÁRIO DE BRASÍLIA
-fuso_brasilia = pytz.timezone("America_Sao_Paulo")
+# FUSO HORÁRIO DO BRASIL (UTC-3)
+fuso_brasilia = timezone(timedelta(hours=-3))
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
 if not st.session_state["autenticado"]:
