@@ -49,7 +49,7 @@ def buscar_usuarios():
     res = supabase.table("usuarios").select("*").order("nome").execute()
     return res.data
 
-# FUSO HORÁRIO DO BRASÍLIA (UTC-3 Fixo)
+# FUSO HORÁRIO DE BRASÍLIA (UTC-3 Fixo)
 fuso_brasilia = timezone(timedelta(hours=-3))
 
 # TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
@@ -354,15 +354,7 @@ with col_chat:
             res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data
             mensagens = sorted(res1 + res2, key=lambda x: x['criado_em'])
 
-        agora = datetime.now(timezone.utc)
         for msg in mensagens:
-            if msg.get("tempo_expiracao_minutos"):
-                criado_em = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00"))
-                expira_em = criado_em + timedelta(minutes=msg["tempo_expiracao_minutos"])
-                if agora > expira_em:
-                    supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
-                    st.rerun()
-
             is_me = msg['usuario_nome'] == nome_formatado_logado
             avatar = "📢" if msg.get("eh_comunicado") else ("🟢" if is_me else "👤")
             
@@ -425,9 +417,6 @@ with col_chat:
                     st.progress(len(leituras) / max(total_alvo, 1))
                     st.caption(f"📊 **Confirmações:** {len(leituras)} de {total_alvo} colaboradores do setor leram.")
 
-                if msg.get("tempo_expiracao_minutos"):
-                    st.caption(f"⏱️ *Mensagem temporária (Autodestruição em {msg['tempo_expiracao_minutos']} min)*")
-
                 if usuario_atual.get("eh_admin"):
                     if st.button("🗑️ Apagar Mensagem", key=f"del_{msg['id']}"):
                         supabase.table("mensagens").delete().eq("id", msg["id"]).execute()
@@ -436,14 +425,15 @@ with col_chat:
 
     renderizar_mensagens()
 
-    # --- NOVO PAINEL DE ENVIO COMPACTO (COM ÍCONES NO CANTO DIREITO) ---
+    # --- PAINEL DE ENVIO COMPACTO (ANEXO E COMUNICADO LADO A LADO) ---
     st.divider()
     
-    # Linha principal de digitação e ícones à direita
-    col_clip, col_input, col_com, col_timer, col_btn = st.columns([0.6, 5.4, 1.3, 1.4, 0.8])
+    col_input, col_clip, col_com, col_btn = st.columns([5.2, 0.8, 1.2, 0.8])
+
+    with col_input:
+        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
     with col_clip:
-        # Botão expansor discreto com o grampo de anexo
         with st.popover("📎", help="Anexar arquivo"):
             arquivo_enviado = st.file_uploader(
                 "Selecione o arquivo:", 
@@ -451,20 +441,14 @@ with col_chat:
                 key=f"uploader_{st.session_state['uploader_key']}",
                 label_visibility="collapsed"
             )
-    with col_input:
-        prompt = st.text_input("Mensagem", placeholder="Digite sua mensagem...", key="input_texto_msg", label_visibility="collapsed")
 
     with col_com:
-        eh_comunicado = st.checkbox("📢", help="Marcar como Comunicado Oficial")
-
-    with col_timer:
-        expiracao_opcao = st.selectbox("⏱️", ["Desativada", "5 min", "60 min"], help="Autodestruição", label_visibility="collapsed")
+        eh_comunicado = st.checkbox("📢 Comunicado", help="Marcar como Comunicado Oficial")
 
     with col_btn:
         btn_enviar = st.button("🚀", help="Enviar Mensagem")
 
     if btn_enviar and (prompt or 'arquivo_enviado' in locals() and arquivo_enviado is not None):
-        minutos_expira = 5 if expiracao_opcao == "5 min" else (60 if expiracao_opcao == "60 min" else None)
         url_publica = None
         tipo_arquivo = None
 
@@ -491,7 +475,7 @@ with col_chat:
             "texto": prompt if prompt else "",
             "destinatario_id": destinatario['id'] if destinatario else None,
             "eh_comunicado": eh_comunicado,
-            "tempo_expiracao_minutos": minutos_expira,
+            "tempo_expiracao_minutos": None,
             "leituras_confirmadas": [],
             "arquivo_url": url_publica,
             "arquivo_tipo": tipo_arquivo
