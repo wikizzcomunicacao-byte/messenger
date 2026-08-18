@@ -14,7 +14,8 @@ st.set_page_config(
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    # Tenta usar a Service Key (evita bloqueios de RLS no Storage) ou a chave pública
+    key = st.secrets.get("SUPABASE_SERVICE_KEY", st.secrets["SUPABASE_KEY"])
     return create_client(url, key)
 
 try:
@@ -124,7 +125,7 @@ st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
 
-# CSS DINÂMICO
+# CSS DINÂMICO (INCLUI BLOQUEIO DO BOTÃO DE RECOLHER)
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -349,13 +350,13 @@ with col_chat:
             if msg.get('texto'):
                 st.write(msg['texto'])
 
-            # EXIBIÇÃO DE ANEXOS
+            # EXIBIÇÃO DE ANEXOS (CORRIGIDO PARA use_container_width)
             if msg.get("arquivo_url"):
-                tipo_arq = msg.get("arquivo_tipo", "")
+                tipo_arq = msg.get("arquivo_tipo", "") or ""
                 url_arq = msg.get("arquivo_url")
                 
                 if "image" in tipo_arq:
-                    st.image(url_arq, use_column_width=True)
+                    st.image(url_arq, use_container_width=True)
                 elif "audio" in tipo_arq:
                     st.audio(url_arq)
                 else:
@@ -439,7 +440,7 @@ with col_chat:
             supabase.table("mensagens").insert(nova_msg).execute()
             registrar_log(usuario_atual['id'], usuario_atual['nome'], usuario_atual['setor'], "ENVIAR_MENSAGEM", f"Enviou mensagem no canal ID {canal_id}")
             
-            # Altera a chave para resetar o componente de upload e evitar envios duplos
+            # Incrementa a chave para descarregar o uploader e evitar reenvios automáticos
             st.session_state["uploader_key"] += 1
             st.rerun()
 
