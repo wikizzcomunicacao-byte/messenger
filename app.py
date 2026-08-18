@@ -340,7 +340,6 @@ with col_chat:
                     ultima_msg = todas_atuais[-1]
                     remetente_ult = ultima_msg.get("usuario_nome", "")
                     if not remetente_ult.startswith(nome_limpo_usuario):
-                        # ALERTA PERSISTENTE (FIXO NA TELA ATÉ QUE SEJA INTERagido ou LIDO)
                         st.warning(f"🔔 Nova mensagem de {remetente_ult}: \"{ultima_msg.get('texto', '')}\"")
                 st.session_state["ultima_qtd_msgs"] = qtd_atual
 
