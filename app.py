@@ -1,20 +1,26 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Configuração da página em modo estendido
+# Configuração da página em modo amplo
 st.set_page_config(page_title="Chat Corporativo", page_icon="💬", layout="wide")
 
-# 1. CONEXÃO COM O SUPABASE
+# 1. CONEXÃO COM O SUPABASE (com suporte ao novo formato de chave sb_publishable_)
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    
+    # Passa a chave nos cabeçalhos padrão do Supabase
+    headers = {
+        "apiKey": key,
+        "Authorization": f"Bearer {key}"
+    }
+    return create_client(url, key, options={"headers": headers})
 
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error("⚠️ Conexão pendente: Configure as chaves SUPABASE_URL e SUPABASE_KEY nos Secrets do Streamlit.")
+    st.error(f"⚠️ Erro na inicialização: {e}")
     st.stop()
 
 # 2. PALETAS DE CORES (5 OPÇÕES)
@@ -36,7 +42,7 @@ PALETAS = {
     }
 }
 
-# 3. SELETOR DE TEMAS NA BARRA LATERAL
+# 3. SELETOR DE TEMAS
 st.sidebar.title("🎨 Personalização")
 tema_escolhido = st.sidebar.selectbox("Escolha o tema visual:", list(PALETAS.keys()))
 p = PALETAS[tema_escolhido]
