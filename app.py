@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import pytz
 
-# Configuração da página - Layout em largura total para imitar o WhatsApp Web
+# Configuração da página - Layout em largura total
 st.set_page_config(
-    page_title="Senhora Lavanderia - WhatsApp Style", 
+    page_title="Senhora Lavanderia - Histórico Completo", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -44,7 +44,7 @@ if "autenticado" not in st.session_state:
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 if "chat_ativo" not in st.session_state:
-    st.session_state["chat_ativo"] = ("canal", 1) # Padrão: canal 1
+    st.session_state["chat_ativo"] = ("canal", 1)
 
 def buscar_usuarios():
     try:
@@ -96,7 +96,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ---------------------------------------------------------
-# APLICATIVO LIBERADO APÓS LOGIN (ESTILO WHATSAPP WEB)
+# APLICATIVO LIBERADO APÓS LOGIN
 # ---------------------------------------------------------
 usuario_atual = st.session_state["usuario_logado"]
 todos_usuarios = buscar_usuarios()
@@ -107,21 +107,20 @@ nome_formatado_logado = f"{nome_limpo_usuario} ({usuario_atual['setor']})"
 p = {
     "bg_app": "#0b141a", 
     "bg_sidebar": "#111b21", 
-    "bg_msg_out": "#005c4b",  # Balão verde enviado
-    "bg_msg_in": "#202c33",   # Balão cinza recebido
+    "bg_msg_out": "#005c4b", 
+    "bg_msg_in": "#202c33", 
     "primary": "#00a884", 
     "text": "#e9edef",
     "subtext": "#8696a0"
 }
 
-# CSS PERSONALIZADO PARA BALÕES DE MENSAGEM DO WHATSAPP
+# CSS PARA BALÕES DE MENSAGEM
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
         [data-testid="stSidebar"] {{ background-color: {p['bg_sidebar']} !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }}
         [data-testid="stSidebar"] * {{ color: {p['text']} !important; }}
         
-        /* Balões de mensagens estilo WhatsApp */
         .msg-out {{
             background-color: {p['bg_msg_out']};
             color: {p['text']};
@@ -166,7 +165,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# BARRA LATERAL - LISTA DE CONVERSAS (ESTILO WHATSAPP)
+# BARRA LATERAL - LISTA DE CONVERSAS
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 👤 {nome_limpo_usuario}")
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
@@ -188,14 +187,12 @@ if st.sidebar.button("🚪 Sair da Conta", use_container_width=True):
 st.sidebar.divider()
 st.sidebar.markdown("💬 **Conversas e Canais**")
 
-# Buscar Canais
 try:
     canais = supabase.table("canais").select("*").order("id").execute().data or []
 except:
     canais = []
 
 for c in canais:
-    # Contar mensagens não lidas no canal
     try:
         msgs_c = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
         nao_lidas = sum(1 for m in msgs_c if not m.get("usuario_nome", "").startswith(nome_limpo_usuario) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
@@ -228,7 +225,7 @@ for u in outros_usuarios:
         st.rerun()
 
 # ---------------------------------------------------------
-# TELA DE ADMINISTRAÇÃO
+# TELA DE ADMINISTRAÇÃO E RELATÓRIOS
 # ---------------------------------------------------------
 tipo_chat, obj_chat = st.session_state["chat_ativo"]
 
@@ -302,12 +299,11 @@ if tipo_chat == "relatorios":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA PRINCIPAL DO CHAT (ESTILO BALÕES DO WHATSAPP)
+# TELA PRINCIPAL DO CHAT - HISTÓRICO COMPLETO NA TELA
 # ---------------------------------------------------------
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
-    # Cabeçalho do Chat ativo
     if tipo_chat == "canal":
         canal_info = next((c for c in canais if c['id'] == obj_chat), {"nome": "geral", "icone": "💬"})
         titulo_janela = f"{canal_info['icone']} #{canal_info['nome']}"
@@ -316,10 +312,10 @@ with col_chat:
 
     st.markdown(f"<div class='chat-header'><h3>{titulo_janela}</h3></div>", unsafe_allow_html=True)
 
-    # Container de mensagens com rolagem
+    # Container contínuo com rolagem fluida exibindo todas as mensagens em sequência
     with st.container(height=480):
         @st.fragment(run_every=3)
-        def renderizar_baloes_chat():
+        def renderizar_historico_completo():
             mensagens = []
             try:
                 if tipo_chat == "canal":
@@ -338,7 +334,6 @@ with col_chat:
                 remetente = msg.get("usuario_nome", "")
                 is_me = remetente.startswith(nome_limpo_usuario)
                 
-                # Marcar como lida se for recebida
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
@@ -355,7 +350,7 @@ with col_chat:
                     except:
                         pass
 
-                # Renderizar balão estilo WhatsApp
+                # Exibindo todas as mensagens em sequência (uma embaixo da outra)
                 if is_me:
                     st.markdown(f"""
                         <div class='msg-out'>
@@ -373,9 +368,8 @@ with col_chat:
                         </div>
                     """, unsafe_allow_html=True)
 
-        renderizar_baloes_chat()
+        renderizar_historico_completo()
         
-        # Script automático para rolar o chat para baixo
         components.html("""
             <script>
                 const doc = window.parent.document;
@@ -393,7 +387,7 @@ with col_chat:
             </script>
         """, height=0, width=0)
 
-    # Caixa de envio de mensagem
+    # Campo de digitação fixo embaixo
     texto_envio = st.chat_input("Digite uma mensagem...")
     if texto_envio:
         try:
