@@ -1,61 +1,98 @@
 import streamlit as st
 import time
+import os
+import json
 
-# Configuração da página para parecer um aplicativo
+# Configuração da página
 st.set_page_config(
     page_title="WhatsApp Clone - Python",
     page_icon="💬",
     layout="centered"
 )
 
-# Estilização CSS personalizada para dar um toque semelhante ao WhatsApp
+# Estilização CSS personalizada para melhorar a barra de input e a aparência geral
 st.markdown("""
     <style>
+    /* Ajusta a barra de chat inferior */
     .stChatInput {
         position: fixed;
         bottom: 0;
-        background-color: white;
+        background-color: transparent;
+        padding-bottom: 20px;
+    }
+    /* Estilo de balões para parecer mais com o WhatsApp */
+    .stChatMessage {
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("💬 WhatsApp Web (Python Edition)")
-st.write("Um protótipo rápido de chat usando Streamlit.")
 
-# Inicializa o histórico de mensagens no estado da sessão do Streamlit
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Olá! Sou seu assistente virtual. Como posso ajudar você hoje?"}
+# Arquivo JSON simples para simular um banco de dados de chat compartilhado
+DB_FILE = "chat_messages.json"
+
+def carregar_mensagens():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return []
+    return [
+        {"user": "Sistema", "avatar": "🤖", "content": "Bem-vindo ao chat em tempo real!"}
     ]
 
-# Exibe o histórico de mensagens na tela
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+def salvar_mensagens(msgs):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(msgs, f, ensure_ascii=False, indent=4)
 
-# Caixa de texto para digitar a mensagem (fica fixada embaixo)
-if prompt := st.chat_input("Digite uma mensagem..."):
-    # Adiciona a mensagem do usuário ao histórico
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# --- SISTEMA DE LOGIN / PERFIL ---
+with st.sidebar:
+    st.header("⚙️ Configurações do Chat")
+    username = st.text_input("Seu Nome de Usuário:", value="Visitante")
+    avatar_choice = st.selectbox("Escolha seu ícone/avatar:", ["👤", "😎", "🚀", "🐱", "🦊", "💻", "⭐"])
     
-    # Exibe a mensagem do usuário imediatamente
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    st.markdown("---")
+    st.info(fLogan := f"Logado como: **{avatar_choice} {username}**")
+    
+    if st.button("🗑️ Limpar Conversa (Global)"):
+        if os.path.exists(DB_FILE):
+            os.remove(DB_FILE)
+        st.rerun()
 
-    # Simula a resposta do bot (ou de outro usuário)
-    with st.chat_message("assistant"):
-        with st.spinner("Digitando..."):
-            time.sleep(1) # Simula o tempo de resposta
-            
-            # Resposta automática simples baseada no que o usuário digitou
-            if "olá" in prompt.lower() or "tudo bem" in prompt.lower():
-                response = "Olá! Tudo ótimo por aqui, e com você?"
-            elif "python" in prompt.lower():
-                response = "Python é incrível para criar desde scripts simples até aplicações web completas!"
-            else:
-                response = f"Entendi o que você disse sobre: '{prompt}'. Muito interessante!"
-                
-            st.markdown(response0 := response)
-            
-    # Adiciona a resposta do assistente ao histórico
-    st.session_state.messages.append({"role": "assistant", "content": response})
+# --- HISTÓRICO DE MENSAGENS ---
+mensagens = carregar_mensagens()
+
+# Atualizador automático a cada 3 segundos para ver mensagens de outros usuários
+st.markdown("""
+    <meta http-equiv="refresh" content="3">
+""", unsafe_allow_html=True)
+
+# Exibe todas as mensagens salvas
+for msg in mensagens:
+    # Define o papel visual com base em quem enviou
+    role = "user" if msg.get("user") == username else "assistant"
+    with st.chat_message(role, avatar=msg.get("avatar", "👤")):
+        st.markdown(f"**{msg.get('user', 'Desconhecido')}**: {msg.get('content', '')}")
+
+# --- CAIXA DE ENTRADA DE MENSAGEM ---
+if prompt := st.chat_input("Digite sua mensagem aqui..."):
+    if not username.strip():
+        st.warning("Por favor, digite um nome de usuário na barra lateral antes de enviar mensagens.")
+    else:
+        # Cria a nova mensagem
+        nova_msg = {
+            "user": username,
+            "avatar": avatar_choice,
+            "content": prompt
+        }
+        
+        # Adiciona ao histórico e salva
+        mensagens.append(nova_msg)
+        salvar_mensagens(mensagens)
+        
+        # Recarrega a página para exibir instantaneamente
+        st.rerun()
