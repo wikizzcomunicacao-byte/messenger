@@ -2,11 +2,10 @@ import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
-import pytz
 
 # Configuração da página - Layout em largura total
 st.set_page_config(
-    page_title="Senhora Lavanderia - WhatsApp Web", 
+    page_title="Senhora Lavanderia - WhatsApp Chats", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -103,7 +102,7 @@ todos_usuarios = buscar_usuarios()
 nome_limpo_usuario = usuario_atual['nome'].replace("*", "").strip()
 nome_formatado_logado = f"{nome_limpo_usuario} ({usuario_atual['setor']})"
 
-# TEMA ESCURO PADRÃO WHATSAPP WEB
+# TEMA ESCURO PADRÃO WHATSAPP
 p = {
     "bg_app": "#0b141a", 
     "bg_sidebar": "#111b21", 
@@ -114,7 +113,7 @@ p = {
     "subtext": "#8696a0"
 }
 
-# CSS PARA ESTILIZAR OS BOTÕES DA LATERAL IGUAL LISTA DE CHATS
+# CSS PERSONALIZADO
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -165,10 +164,10 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# BARRA LATERAL - LISTA DE CONVERSAS UMA ABAIXO DA OUTRA
+# BARRA LATERAL - ABA DE CONVERSAS RECENTES (UMA ABAIXO DA OUTRA)
 # ---------------------------------------------------------
-st.sidebar.markdown(f"### 👤 {nome_limpo_usuario}")
-st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
+st.sidebar.markdown(f"### 💬 Conversas")
+st.sidebar.caption(f"Logado como: {nome_limpo_usuario} ({usuario_atual['setor']})")
 
 if usuario_atual.get("eh_admin"):
     if st.sidebar.button("⚙️ Painel Admin", use_container_width=True):
@@ -185,7 +184,7 @@ if st.sidebar.button("🚪 Sair da Conta", use_container_width=True):
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.markdown("💬 **Canais de Setor**")
+st.sidebar.markdown("📢 **Canais de Setor**")
 
 try:
     canais = supabase.table("canais").select("*").order("id").execute().data or []
@@ -193,35 +192,44 @@ except:
     canais = []
 
 for c in canais:
+    # Buscar última mensagem do canal para mostrar na lista estilo WhatsApp
     try:
-        msgs_c = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
+        msgs_c = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").order("criado_em", desc=True).execute().data or []
+        ultima_txt = msgs_c[0].get("texto", "Nenhuma mensagem") if msgs_c else "Toque para iniciar"
         nao_lidas = sum(1 for m in msgs_c if not m.get("usuario_nome", "").startswith(nome_limpo_usuario) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
     except:
+        ultima_txt = "Toque para iniciar"
         nao_lidas = 0
         
-    badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
-    label = f"{c['icone']} #{c['nome']}{badge}"
+    badge = f" 🟢 {nao_lidas}" if nao_lidas > 0 else ""
     
-    # Cada chat na lateral funciona como um botão que abre a janela principal ao ser clicado
-    if st.sidebar.button(label, key=f"btn_canal_{c['id']}", use_container_width=True):
+    # Exibe a conversa em estilo bloco vertical (Nome do canal + prévia da última mensagem)
+    if st.sidebar.button(f"📢 #{c['nome']}{badge}\n💬 {ultima_txt[:28]}...", key=f"btn_canal_{c['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("canal", c['id'])
         st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("👥 **Mensagens Diretas (DMs)**")
+st.sidebar.divider()
+st.sidebar.markdown("👤 **Conversas Diretas (DMs)**")
 
 outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
 for u in outros_usuarios:
     try:
-        dms = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
-        nao_lidas_dm = sum(1 for m in dms if (m.get("usuario_nome", "").startswith(u['nome']) or m.get("usuario_nome") == u['nome']) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
+        # Buscar última mensagem trocada com o usuário
+        res1 = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("destinatario_id", u['id']).order("criado_em", desc=True).execute().data or []
+        res2 = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("destinatario_id", usuario_atual['id']).order("criado_em", desc=True).execute().data or []
+        
+        todas_dm = sorted(res1 + res2, key=lambda x: x.get('criado_em', ''), reverse=True)
+        ultima_txt_dm = todas_dm[0].get("texto", "Nenhuma conversa") if todas_dm else "Nenhuma conversa"
+        
+        nao_lidas_dm = sum(1 for m in res2 if (m.get("usuario_nome", "").startswith(u['nome']) or m.get("usuario_nome") == u['nome']) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
     except:
+        ultima_txt_dm = "Nenhuma conversa"
         nao_lidas_dm = 0
         
-    badge_dm = f" 🟢 ({nao_lidas_dm})" if nao_lidas_dm > 0 else ""
-    label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
+    badge_dm = f" 🟢 {nao_lidas_dm}" if nao_lidas_dm > 0 else ""
     
-    if st.sidebar.button(label_dm, key=f"btn_dm_{u['id']}", use_container_width=True):
+    # Exibe a DM em bloco vertical estilo WhatsApp
+    if st.sidebar.button(f"👤 {u['nome']} ({u['setor']}){badge_dm}\n💬 {ultima_txt_dm[:28]}...", key=f"btn_dm_{u['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("dm", u)
         st.rerun()
 
@@ -300,7 +308,7 @@ if tipo_chat == "relatorios":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA DA JANELA DE CHAT PRINCIPAL ABERTA
+# TELA DA JANELA DE CHAT ABERTA (MENSAGENS EM FORMATO DE BALÃO)
 # ---------------------------------------------------------
 col_chat, col_tarefas = st.columns([2, 1])
 
@@ -313,7 +321,6 @@ with col_chat:
 
     st.markdown(f"<div class='chat-header'><h3>{titulo_janela}</h3></div>", unsafe_allow_html=True)
 
-    # Janela onde as mensagens aparecem uma embaixo da outra ao abrir a conversa
     with st.container(height=480):
         @st.fragment(run_every=3)
         def renderizar_janela_chat():
@@ -387,7 +394,6 @@ with col_chat:
             </script>
         """, height=0, width=0)
 
-    # Envio de mensagem dentro da janela aberta
     texto_envio = st.chat_input("Digite uma mensagem...")
     if texto_envio:
         try:
