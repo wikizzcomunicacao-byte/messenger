@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import pytz
 
-# Configuração da página - Barra lateral fixa
+# Configuração da página - Layout em largura total para imitar o WhatsApp Web
 st.set_page_config(
-    page_title="Senhora Lavanderia", 
+    page_title="Senhora Lavanderia - WhatsApp Style", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -43,10 +43,8 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
-if "ultima_qtd_msgs" not in st.session_state:
-    st.session_state["ultima_qtd_msgs"] = 0
-if "notificacoes_fechadas" not in st.session_state:
-    st.session_state["notificacoes_fechadas"] = set()
+if "chat_ativo" not in st.session_state:
+    st.session_state["chat_ativo"] = ("canal", 1) # Padrão: canal 1
 
 def buscar_usuarios():
     try:
@@ -90,11 +88,6 @@ if not st.session_state["autenticado"]:
                 elif senha_input == dados_usuario.get("senha", "123456"):
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = dados_usuario
-                    try:
-                        tot_msgs = supabase.table("mensagens").select("id", count="exact").execute().data or []
-                        st.session_state["ultima_qtd_msgs"] = len(tot_msgs)
-                    except:
-                        st.session_state["ultima_qtd_msgs"] = 0
                     registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", f"Login às {agora_local.strftime('%H:%M')}")
                     st.success("Login realizado com sucesso!")
                     st.rerun()
@@ -103,32 +96,67 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ---------------------------------------------------------
-# APLICATIVO LIBERADO APÓS LOGIN
+# APLICATIVO LIBERADO APÓS LOGIN (ESTILO WHATSAPP WEB)
 # ---------------------------------------------------------
 usuario_atual = st.session_state["usuario_logado"]
 todos_usuarios = buscar_usuarios()
 nome_limpo_usuario = usuario_atual['nome'].replace("*", "").strip()
 nome_formatado_logado = f"{nome_limpo_usuario} ({usuario_atual['setor']})"
 
-# TEMA FIXO: ESCURO PADRÃO (WHATSAPP)
+# TEMA ESCURO PADRÃO WHATSAPP WEB
 p = {
     "bg_app": "#0b141a", 
     "bg_sidebar": "#111b21", 
-    "bg_msg": "#202c33", 
+    "bg_msg_out": "#005c4b",  # Balão verde enviado
+    "bg_msg_in": "#202c33",   # Balão cinza recebido
     "primary": "#00a884", 
-    "text": "#e9edef"
+    "text": "#e9edef",
+    "subtext": "#8696a0"
 }
 
-# CSS DINÂMICO
+# CSS PERSONALIZADO PARA BALÕES DE MENSAGEM DO WHATSAPP
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
         [data-testid="stSidebar"] {{ background-color: {p['bg_sidebar']} !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }}
         [data-testid="stSidebar"] * {{ color: {p['text']} !important; }}
-        [data-testid="stChatMessage"] {{ background-color: {p['bg_msg']} !important; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: {p['text']} !important; }}
-        [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
-        .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
-        h1, h2, h3, p, span {{ color: {p['text']} !important; }}
+        
+        /* Balões de mensagens estilo WhatsApp */
+        .msg-out {{
+            background-color: {p['bg_msg_out']};
+            color: {p['text']};
+            padding: 10px 14px;
+            border-radius: 8px 0px 8px 8px;
+            margin: 5px 0;
+            max-width: 65%;
+            margin-left: auto;
+            word-wrap: break-word;
+            box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+        }}
+        .msg-in {{
+            background-color: {p['bg_msg_in']};
+            color: {p['text']};
+            padding: 10px 14px;
+            border-radius: 0px 8px 8px 8px;
+            margin: 5px 0;
+            max-width: 65%;
+            margin-right: auto;
+            word-wrap: break-word;
+            box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+        }}
+        .msg-info {{
+            font-size: 0.7em;
+            color: {p['subtext']};
+            text-align: right;
+            margin-top: 4px;
+        }}
+        .chat-header {{
+            background-color: {p['bg_sidebar']};
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }}
         
         [data-testid="stSidebarCollapseButton"],
         [data-testid="collapsedControl"] {{
@@ -138,115 +166,75 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS
+# BARRA LATERAL - LISTA DE CONVERSAS (ESTILO WHATSAPP)
 # ---------------------------------------------------------
-mensagens_nao_lidas_detalhes = []
-try:
-    todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id, canal_id").execute().data or []
-    for m in todas_as_msgs:
-        msg_id = m.get("id")
-        if msg_id in st.session_state["notificacoes_fechadas"]:
-            continue
-        remetente = m.get("usuario_nome", "")
-        if not remetente.startswith(nome_limpo_usuario):
-            dest_id = m.get("destinatario_id")
-            canal_ref = m.get("canal_id")
-            if dest_id == usuario_atual['id'] or (canal_ref is not None and dest_id is None):
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    mensagens_nao_lidas_detalhes.append(m)
-except:
-    pass
-
-total_geral_nao_lidas = len(mensagens_nao_lidas_detalhes)
-
-# BARRA LATERAL - PERFIL E MINI-CHATS DE RESPOSTA RÁPIDA
-if total_geral_nao_lidas > 0:
-    st.sidebar.markdown(f"🔔 **{nome_limpo_usuario}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
-    
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("💬 **Mini-Chats Pendentes:**")
-    
-    for mn in mensagens_nao_lidas_detalhes:
-        m_id = mn.get("id")
-        rem = mn.get("usuario_nome", "Alguém")
-        txt = mn.get("texto", "")
-        
-        with st.sidebar.container(border=True):
-            col_info, col_x = st.columns([5, 1])
-            with col_info:
-                st.markdown(f"**{rem}**")
-                st.caption(txt)
-            with col_x:
-                if st.button("✕", key=f"fechar_notif_{m_id}"):
-                    st.session_state["notificacoes_fechadas"].add(m_id)
-                    st.rerun()
-            
-            resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
-            if resposta_mini:
-                try:
-                    canal_id_env = mn.get("canal_id")
-                    dest_id_env = mn.get("destinatario_id")
-                    
-                    if dest_id_env == usuario_atual['id']:
-                        nome_remetente_original = rem.split("(")[0].strip()
-                        autor_msg = next((u for u in todos_usuarios if u['nome'].replace("*", "").strip() == nome_remetente_original), None)
-                        novo_dest_id = autor_msg['id'] if autor_msg else None
-                        novo_canal_id = None
-                    else:
-                        novo_canal_id = canal_id_env
-                        novo_dest_id = None
-
-                    supabase.table("mensagens").insert({
-                        "canal_id": novo_canal_id,
-                        "usuario_nome": nome_formatado_logado,
-                        "texto": resposta_mini,
-                        "destinatario_id": novo_dest_id,
-                        "leituras_confirmadas": [usuario_atual['id']]
-                    }).execute()
-                    
-                    leituras = mn.get("leituras_confirmadas") or []
-                    if usuario_atual['id'] not in leituras:
-                        leituras.append(usuario_atual['id'])
-                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", m_id).execute()
-                    
-                    st.session_state["notificacoes_fechadas"].add(m_id)
-                    st.success("Enviado!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-else:
-    st.sidebar.title(f"👤 {nome_limpo_usuario}")
-
+st.sidebar.markdown(f"### 👤 {nome_limpo_usuario}")
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
-st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 22)}h")
 
 if usuario_atual.get("eh_admin"):
-    st.sidebar.success("👑 Administrador")
+    if st.sidebar.button("⚙️ Painel Admin", use_container_width=True):
+        st.session_state["chat_ativo"] = ("admin", 0)
+        st.rerun()
+    if st.sidebar.button("📊 Relatórios de Auditoria", use_container_width=True):
+        st.session_state["chat_ativo"] = ("relatorios", 0)
+        st.rerun()
 
-if st.sidebar.button("🚪 Sair", use_container_width=True):
+if st.sidebar.button("🚪 Sair da Conta", use_container_width=True):
     registrar_log(usuario_atual['id'], nome_limpo_usuario, usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
     st.rerun()
 
 st.sidebar.divider()
+st.sidebar.markdown("💬 **Conversas e Canais**")
 
-# OPÇÕES DE NAVEGAÇÃO PRINCIPAL
-opcoes_modo = ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"]
-if usuario_atual.get("eh_admin"):
-    opcoes_modo.append("⚙️ Admin")
-    opcoes_modo.append("📊 Relatórios")
+# Buscar Canais
+try:
+    canais = supabase.table("canais").select("*").order("id").execute().data or []
+except:
+    canais = []
 
-tipo_chat = st.sidebar.radio("Navegação:", opcoes_modo)
+for c in canais:
+    # Contar mensagens não lidas no canal
+    try:
+        msgs_c = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
+        nao_lidas = sum(1 for m in msgs_c if not m.get("usuario_nome", "").startswith(nome_limpo_usuario) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
+    except:
+        nao_lidas = 0
+        
+    badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
+    label = f"{c['icone']} #{c['nome']}{badge}"
+    
+    if st.sidebar.button(label, key=f"btn_canal_{c['id']}", use_container_width=True):
+        st.session_state["chat_ativo"] = ("canal", c['id'])
+        st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("👥 **Mensagens Diretas (DMs)**")
+
+outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
+for u in outros_usuarios:
+    try:
+        dms = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
+        nao_lidas_dm = sum(1 for m in dms if (m.get("usuario_nome", "").startswith(u['nome']) or m.get("usuario_nome") == u['nome']) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
+    except:
+        nao_lidas_dm = 0
+        
+    badge_dm = f" 🟢 ({nao_lidas_dm})" if nao_lidas_dm > 0 else ""
+    label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
+    
+    if st.sidebar.button(label_dm, key=f"btn_dm_{u['id']}", use_container_width=True):
+        st.session_state["chat_ativo"] = ("dm", u)
+        st.rerun()
 
 # ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN) COM REMOÇÃO SEGURA
+# TELA DE ADMINISTRAÇÃO
 # ---------------------------------------------------------
-if tipo_chat == "⚙️ Admin":
+tipo_chat, obj_chat = st.session_state["chat_ativo"]
+
+if tipo_chat == "admin":
     st.title("⚙️ Gestão de Usuários e Sistema")
     col_cad, col_lista = st.columns(2)
-    
     setores_existentes = ["licitacao", "compras", "financeiro", "farmaceutica", "estoque", "faturamento-pedidos", "cotacao", "loja-online", "geral"]
 
     with col_cad:
@@ -276,63 +264,35 @@ if tipo_chat == "⚙️ Admin":
         for u in todos_usuarios:
             with st.container(border=True):
                 st.markdown(f"**{u['nome']}** ({u['setor']})")
-                
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    if st.button("✏️ Editar", key=f"edit_toggle_{u['id']}"):
-                        st.session_state[f"editando_{u['id']}"] = not st.session_state.get(f"editando_{u['id']}", False)
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if st.button("✏️ Editar", key=f"edit_u_{u['id']}"):
+                        st.session_state[f"edit_{u['id']}"] = not st.session_state.get(f"edit_{u['id']}", False)
                         st.rerun()
-                with col_btn2:
+                with col_b2:
                     if u['id'] != usuario_atual['id']:
                         if st.button("❌ Remover", key=f"del_u_{u['id']}"):
                             try:
-                                # Remove primeiro as referências nas mensagens e DMs para evitar erro de chave estrangeira
                                 supabase.table("mensagens").delete().eq("destinatario_id", u['id']).execute()
-                                # Agora remove o usuário com segurança
                                 supabase.table("usuarios").delete().eq("id", u['id']).execute()
-                                
-                                st.success(f"Usuário {u['nome']} removido com sucesso!")
+                                st.success("Removido com sucesso!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao remover: {e}")
+                                st.error(f"Erro: {e}")
                 
-                # Formulário de Edição Inline se ativado
-                if st.session_state.get(f"editando_{u['id']}", False):
-                    with st.form(f"form_edit_{u['id']}"):
-                        st.markdown("---")
-                        st.markdown(f"**Editando: {u['nome']}**")
-                        ed_nome = st.text_input("Nome Completo:", value=u['nome'], key=f"n_{u['id']}")
-                        
-                        idx_setor = setores_existentes.index(u['setor']) if u['setor'] in setores_existentes else 0
-                        ed_setor = st.selectbox("Setor:", setores_existentes, index=idx_setor, key=f"s_{u['id']}")
-                        
-                        ed_senha = st.text_input("Senha:", value=u.get('senha', '123456'), key=f"p_{u['id']}")
-                        ed_h_inicio = st.number_input("Início Expediente:", value=int(u.get('hora_inicio_expediente', 7)), min_value=0, max_value=23, key=f"hi_{u['id']}")
-                        ed_h_fim = st.number_input("Fim Expediente:", value=int(u.get('hora_fim_expediente', 22)), min_value=0, max_value=23, key=f"hf_{u['id']}")
-                        ed_admin = st.checkbox("Administrador", value=u.get('eh_admin', False), key=f"adm_{u['id']}")
-                        
-                        if st.form_submit_button("Salvar Alterações"):
-                            try:
-                                supabase.table("usuarios").update({
-                                    "nome": ed_nome,
-                                    "setor": ed_setor,
-                                    "senha": ed_senha,
-                                    "hora_inicio_expediente": ed_h_inicio,
-                                    "hora_fim_expediente": ed_h_fim,
-                                    "eh_admin": ed_admin
-                                }).eq("id", u['id']).execute()
-                                
-                                st.session_state[f"editando_{u['id']}"] = False
-                                st.success("Atualizado com sucesso!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erro ao atualizar: {e}")
+                if st.session_state.get(f"edit_{u['id']}", False):
+                    with st.form(f"form_ed_{u['id']}"):
+                        ed_n = st.text_input("Nome:", value=u['nome'])
+                        ed_s = st.selectbox("Setor:", setores_existentes, index=setores_existentes.index(u['setor']) if u['setor'] in setores_existentes else 0)
+                        ed_p = st.text_input("Senha:", value=u.get('senha', '123456'))
+                        ed_adm = st.checkbox("Admin", value=u.get('eh_admin', False))
+                        if st.form_submit_button("Salvar"):
+                            supabase.table("usuarios").update({"nome": ed_n, "setor": ed_s, "senha": ed_p, "eh_admin": ed_adm}).eq("id", u['id']).execute()
+                            st.session_state[f"edit_{u['id']}"] = False
+                            st.rerun()
     st.stop()
 
-# ---------------------------------------------------------
-# TELA: RELATÓRIOS E LOGS (ADMIN)
-# ---------------------------------------------------------
-if tipo_chat == "📊 Relatórios":
+if tipo_chat == "relatorios":
     st.title("📊 Relatórios e Logs de Auditoria")
     try:
         logs = supabase.table("logs_acesso").select("*").order("criado_em", desc=True).limit(50).execute().data or []
@@ -342,116 +302,43 @@ if tipo_chat == "📊 Relatórios":
     st.stop()
 
 # ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs)
+# TELA PRINCIPAL DO CHAT (ESTILO BALÕES DO WHATSAPP)
 # ---------------------------------------------------------
-canal_id = None
-destinatario = None
-membros_canal = []
-
-if tipo_chat == "🏢 Canais de Setor":
-    st.sidebar.divider()
-    st.sidebar.subheader("Canal:")
-    try:
-        canais = supabase.table("canais").select("*").order("id").execute().data or []
-    except:
-        canais = []
-    
-    mapa_canais = {}
-    for c in canais:
-        try:
-            msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
-        except:
-            msgs_canal = []
-            
-        nao_lidas = 0
-        for m in msgs_canal:
-            remetente = m.get("usuario_nome", "")
-            if not remetente.startswith(nome_limpo_usuario):
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    nao_lidas += 1
-        badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
-        label = f"{c['icone']} #{c['nome']}{badge}"
-        mapa_canais[label] = c
-
-    if mapa_canais:
-        canal_nome_sel = st.sidebar.radio("Selecione:", list(mapa_canais.keys()), label_visibility="collapsed")
-        obj_canal = mapa_canais[canal_nome_sel]
-        canal_id = obj_canal['id']
-        canal_nome_limpo = obj_canal['nome']
-        titulo_chat = f"#{canal_nome_limpo}"
-        membros_canal = todos_usuarios if canal_nome_limpo == "geral" else [u for u in todos_usuarios if u['setor'].lower() in canal_nome_limpo.lower()]
-    else:
-        titulo_chat = "#geral"
-else:
-    st.sidebar.divider()
-    outros = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
-    
-    mapa_dms = {}
-    for u in outros:
-        try:
-            dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
-        except:
-            dm_nao_lidas = []
-            
-        qtd_dm = 0
-        for m in dm_nao_lidas:
-            remetente = m.get("usuario_nome", "")
-            if remetente.startswith(u['nome']) or remetente == u['nome']:
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    qtd_dm += 1
-        badge_dm = f" 🟢 ({qtd_dm})" if qtd_dm > 0 else ""
-        label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
-        mapa_dms[label_dm] = u
-
-    if mapa_dms:
-        usuario_dm_sel = st.sidebar.selectbox("Falar com:", list(mapa_dms.keys()))
-        destinatario = mapa_dms[usuario_dm_sel]
-        titulo_chat = f"Conversa com {destinatario['nome']}"
-    else:
-        titulo_chat = "Conversa Direta"
-
-# INTERFACE PRINCIPAL DO CHAT E TAREFAS
 col_chat, col_tarefas = st.columns([2, 1])
 
 with col_chat:
-    if total_geral_nao_lidas > 0:
-        st.markdown(f"### 🔔 {titulo_chat} <span style='font-size: 0.6em; background-color: #25d366; color: black; padding: 2px 8px; border-radius: 10px;'>{total_geral_nao_lidas} novas mensagens</span>", unsafe_allow_html=True)
+    # Cabeçalho do Chat ativo
+    if tipo_chat == "canal":
+        canal_info = next((c for c in canais if c['id'] == obj_chat), {"nome": "geral", "icone": "💬"})
+        titulo_janela = f"{canal_info['icone']} #{canal_info['nome']}"
     else:
-        st.subheader(titulo_chat)
+        titulo_janela = f"👤 Conversa com {obj_chat['nome']} ({obj_chat['setor']})"
 
+    st.markdown(f"<div class='chat-header'><h3>{titulo_janela}</h3></div>", unsafe_allow_html=True)
+
+    # Container de mensagens com rolagem
     with st.container(height=480):
         @st.fragment(run_every=3)
-        def renderizar_mensagens():
-            try:
-                todas_atuais = supabase.table("mensagens").select("id, usuario_nome, texto").execute().data or []
-            except:
-                todas_atuais = []
-            qtd_atual = len(todas_atuais)
-            
-            if qtd_atual > st.session_state["ultima_qtd_msgs"]:
-                st.session_state["ultima_qtd_msgs"] = qtd_atual
-
+        def renderizar_baloes_chat():
             mensagens = []
             try:
-                if tipo_chat == "🏢 Canais de Setor" and canal_id:
-                    mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
-                elif destinatario:
-                    res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
-                    res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
-                    res3 = supabase.table("mensagens").select("*").eq("usuario_nome", destinatario['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
+                if tipo_chat == "canal":
+                    mensagens = supabase.table("mensagens").select("*").eq("canal_id", obj_chat).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
+                else:
+                    res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", obj_chat['id']).execute().data or []
+                    res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{obj_chat['nome']} ({obj_chat['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
+                    res3 = supabase.table("mensagens").select("*").eq("usuario_nome", obj_chat['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
                     
-                    todas_mensagens = {m['id']: m for m in (res1 + res2 + res3)}
-                    mensagens = sorted(list(todas_mensagens.values()), key=lambda x: x['criado_em'])
+                    todas = {m['id']: m for m in (res1 + res2 + res3)}
+                    mensagens = sorted(list(todas.values()), key=lambda x: x['criado_em'])
             except:
                 mensagens = []
 
             for msg in mensagens:
-                remetente_msg = msg.get("usuario_nome", "")
-                is_me = remetente_msg.startswith(nome_limpo_usuario)
-                avatar = "🟢" if is_me else "👤"
+                remetente = msg.get("usuario_nome", "")
+                is_me = remetente.startswith(nome_limpo_usuario)
                 
+                # Marcar como lida se for recebida
                 leituras = msg.get("leituras_confirmadas") or []
                 if not is_me and usuario_atual['id'] not in leituras:
                     leituras.append(usuario_atual['id'])
@@ -460,43 +347,35 @@ with col_chat:
                     except:
                         pass
 
-                hora_formatada = ""
+                hora = ""
                 if msg.get("criado_em"):
                     try:
-                        dt_local = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
-                        hora_formatada = dt_local.strftime("%H:%M")
+                        dt = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
+                        hora = dt.strftime("%H:%M")
                     except:
                         pass
 
-                with st.chat_message("user", avatar=avatar):
-                    col_nome, col_hora = st.columns([5, 1])
-                    with col_nome:
-                        st.markdown(f"**{remetente_msg}**")
-                    with col_hora:
-                        if hora_formatada:
-                            st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
+                # Renderizar balão estilo WhatsApp
+                if is_me:
+                    st.markdown(f"""
+                        <div class='msg-out'>
+                            <div style='font-size: 0.8em; font-weight: bold; color: #00a884; margin-bottom: 2px;'>Você</div>
+                            <div>{msg.get('texto', '')}</div>
+                            <div class='msg-info'>{hora} ✓✓</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                        <div class='msg-in'>
+                            <div style='font-size: 0.8em; font-weight: bold; color: #53bdeb; margin-bottom: 2px;'>{remetente}</div>
+                            <div>{msg.get('texto', '')}</div>
+                            <div class='msg-info'>{hora}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
 
-                    if msg.get('texto'):
-                        st.write(msg['texto'])
-
-                    if msg.get("arquivo_url"):
-                        url_arq = msg.get("arquivo_url")
-                        nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
-                        st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
-
-                    if not is_me:
-                        st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
-
-                    if usuario_atual.get("eh_admin"):
-                        if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
-                            try:
-                                supabase.table("mensagens").delete().eq("id", msg['id']).execute()
-                                st.rerun()
-                            except:
-                                pass
-
-        renderizar_mensagens()
+        renderizar_baloes_chat()
         
+        # Script automático para rolar o chat para baixo
         components.html("""
             <script>
                 const doc = window.parent.document;
@@ -508,41 +387,38 @@ with col_chat:
                             inner.scrollTop = inner.scrollHeight;
                         }
                     });
-                    const containers = doc.querySelectorAll('div[data-testid="stVerticalBlock"]');
-                    containers.forEach(el => {
-                        if (el.scrollHeight > el.clientHeight && el.style.overflow !== 'hidden') {
-                            el.scrollTop = el.scrollHeight;
-                        }
-                    });
                 }
                 setTimeout(autoScroll, 50);
                 setTimeout(autoScroll, 200);
             </script>
         """, height=0, width=0)
-    
-    prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_chat_principal")
-    
-    if prompt:
+
+    # Caixa de envio de mensagem
+    texto_envio = st.chat_input("Digite uma mensagem...")
+    if texto_envio:
         try:
             supabase.table("mensagens").insert({
-                "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else None,
+                "canal_id": obj_chat if tipo_chat == "canal" else None,
                 "usuario_nome": nome_formatado_logado,
-                "texto": prompt,
-                "destinatario_id": destinatario['id'] if tipo_chat == "👤 Mensagens Diretas (DM)" and destinatario else None,
+                "texto": texto_envio,
+                "destinatario_id": obj_chat['id'] if tipo_chat == "dm" else None,
                 "leituras_confirmadas": [usuario_atual['id']]
             }).execute()
             st.rerun()
         except Exception as e:
-            st.error(f"Erro ao enviar mensagem: {e}")
+            st.error(f"Erro ao enviar: {e}")
 
+# ---------------------------------------------------------
+# COLUNA DE TAREFAS
+# ---------------------------------------------------------
 with col_tarefas:
     st.subheader("📋 Tarefas")
     
     @st.fragment(run_every=3)
     def renderizar_tarefas():
-        c_id_tarefa = canal_id if tipo_chat == "🏢 Canais de Setor" and canal_id else 1
+        c_id = obj_chat if tipo_chat == "canal" else 1
         try:
-            tarefas = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute().data or []
+            tarefas = supabase.table("tarefas").select("*").eq("canal_id", c_id).order("id", desc=True).execute().data or []
         except:
             tarefas = []
         
@@ -554,29 +430,20 @@ with col_tarefas:
                 st.caption(f"Atribuído a: {t.get('atribuido_a', 'Geral')}")
                 
                 if t['status'] != "Concluído":
-                    if st.button("Marcar Concluída", key=f"t_{t['id']}"):
-                        try:
-                            supabase.table("tarefas").update({"status": "Concluído"}).eq("id", t['id']).execute()
-                            st.rerun()
-                        except:
-                            pass
+                    if st.button("Concluir", key=f"t_{t['id']}"):
+                        supabase.table("tarefas").update({"status": "Concluído"}).eq("id", t['id']).execute()
+                        st.rerun()
 
     renderizar_tarefas()
 
     with st.expander("+ Criar Nova Tarefa"):
-        nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
-        opcoes_membros = ["Todos do Setor"] + [u['nome'] for u in (membros_canal if tipo_chat == "🏢 Canais de Setor" else todos_usuarios)]
-        responsavel_sel = st.selectbox("Atribuir a:", opcoes_membros)
-        
+        nova_t = st.text_input("Título da tarefa:")
         if st.button("Salvar Tarefa"):
-            if nova_tarefa_titulo:
-                try:
-                    supabase.table("tarefas").insert({
-                        "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" and canal_id else 1,
-                        "titulo": nova_tarefa_titulo,
-                        "atribuido_a": responsavel_sel,
-                        "status": "Pendente"
-                    }).execute()
-                    st.rerun()
-                except:
-                    pass
+            if nova_t:
+                supabase.table("tarefas").insert({
+                    "canal_id": obj_chat if tipo_chat == "canal" else 1,
+                    "titulo": nova_t,
+                    "atribuido_a": "Geral",
+                    "status": "Pendente"
+                }).execute()
+                st.rerun()
