@@ -113,13 +113,26 @@ p = {
     "subtext": "#8696a0"
 }
 
-# CSS PERSONALIZADO
+# CSS PERSONALIZADO PARA ESTILIZAR OS BOTÕES DA LATERAL IGUAL WHATSAPP
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
         [data-testid="stSidebar"] {{ background-color: {p['bg_sidebar']} !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }}
         [data-testid="stSidebar"] * {{ color: {p['text']} !important; }}
         
+        /* Deixar os botões da barra lateral com cara de lista de conversas do WhatsApp */
+        [data-testid="stSidebar"] .stButton button {{
+            background-color: transparent !important;
+            border: none !important;
+            text-align: left !important;
+            padding: 8px 10px !important;
+            border-radius: 8px !important;
+            margin-bottom: 4px !important;
+        }}
+        [data-testid="stSidebar"] .stButton button:hover {{
+            background-color: rgba(255, 255, 255, 0.05) !important;
+        }}
+
         .msg-out {{
             background-color: {p['bg_msg_out']};
             color: {p['text']};
@@ -164,20 +177,20 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# BARRA LATERAL - ABA DE CONVERSAS RECENTES (UMA ABAIXO DA OUTRA)
+# BARRA LATERAL - ABA DE CONVERSAS RECENTES
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 💬 Conversas")
-st.sidebar.caption(f"Logado como: {nome_limpo_usuario} ({usuario_atual['setor']})")
+st.sidebar.caption(f"Logado como: {nome_limpo_usuario}")
 
 if usuario_atual.get("eh_admin"):
-    if st.sidebar.button("⚙️ Painel Admin", use_container_width=True):
+    if st.sidebar.button("⚙️ Painel Admin", use_container_width=True, key="nav_admin"):
         st.session_state["chat_ativo"] = ("admin", 0)
         st.rerun()
-    if st.sidebar.button("📊 Relatórios de Auditoria", use_container_width=True):
+    if st.sidebar.button("📊 Relatórios de Auditoria", use_container_width=True, key="nav_rel"):
         st.session_state["chat_ativo"] = ("relatorios", 0)
         st.rerun()
 
-if st.sidebar.button("🚪 Sair da Conta", use_container_width=True):
+if st.sidebar.button("🚪 Sair da Conta", use_container_width=True, key="nav_sair"):
     registrar_log(usuario_atual['id'], nome_limpo_usuario, usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
@@ -192,7 +205,6 @@ except:
     canais = []
 
 for c in canais:
-    # Buscar última mensagem do canal para mostrar na lista estilo WhatsApp
     try:
         msgs_c = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").order("criado_em", desc=True).execute().data or []
         ultima_txt = msgs_c[0].get("texto", "Nenhuma mensagem") if msgs_c else "Toque para iniciar"
@@ -203,8 +215,8 @@ for c in canais:
         
     badge = f" 🟢 {nao_lidas}" if nao_lidas > 0 else ""
     
-    # Exibe a conversa em estilo bloco vertical (Nome do canal + prévia da última mensagem)
-    if st.sidebar.button(f"📢 #{c['nome']}{badge}\n💬 {ultima_txt[:28]}...", key=f"btn_canal_{c['id']}", use_container_width=True):
+    # Ao clicar, atualiza o estado e força o rerun imediato
+    if st.sidebar.button(f"📢 **#{c['nome']}**{badge}\n💬 {ultima_txt[:26]}...", key=f"btn_canal_{c['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("canal", c['id'])
         st.rerun()
 
@@ -214,7 +226,6 @@ st.sidebar.markdown("👤 **Conversas Diretas (DMs)**")
 outros_usuarios = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
 for u in outros_usuarios:
     try:
-        # Buscar última mensagem trocada com o usuário
         res1 = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("destinatario_id", u['id']).order("criado_em", desc=True).execute().data or []
         res2 = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("destinatario_id", usuario_atual['id']).order("criado_em", desc=True).execute().data or []
         
@@ -228,8 +239,7 @@ for u in outros_usuarios:
         
     badge_dm = f" 🟢 {nao_lidas_dm}" if nao_lidas_dm > 0 else ""
     
-    # Exibe a DM em bloco vertical estilo WhatsApp
-    if st.sidebar.button(f"👤 {u['nome']} ({u['setor']}){badge_dm}\n💬 {ultima_txt_dm[:28]}...", key=f"btn_dm_{u['id']}", use_container_width=True):
+    if st.sidebar.button(f"👤 **{u['nome']}**{badge_dm}\n💬 {ultima_txt_dm[:26]}...", key=f"btn_dm_{u['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("dm", u)
         st.rerun()
 
@@ -308,7 +318,7 @@ if tipo_chat == "relatorios":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA DA JANELA DE CHAT ABERTA (MENSAGENS EM FORMATO DE BALÃO)
+# TELA DA JANELA DE CHAT ABERTA
 # ---------------------------------------------------------
 col_chat, col_tarefas = st.columns([2, 1])
 
