@@ -6,7 +6,7 @@ import pytz
 
 # Configuração da página - Layout em largura total
 st.set_page_config(
-    page_title="Senhora Lavanderia - Histórico Completo", 
+    page_title="Senhora Lavanderia - WhatsApp Web", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -114,7 +114,7 @@ p = {
     "subtext": "#8696a0"
 }
 
-# CSS PARA BALÕES DE MENSAGEM
+# CSS PARA ESTILIZAR OS BOTÕES DA LATERAL IGUAL LISTA DE CHATS
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
@@ -165,7 +165,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# BARRA LATERAL - LISTA DE CONVERSAS
+# BARRA LATERAL - LISTA DE CONVERSAS UMA ABAIXO DA OUTRA
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 👤 {nome_limpo_usuario}")
 st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
@@ -185,7 +185,7 @@ if st.sidebar.button("🚪 Sair da Conta", use_container_width=True):
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.markdown("💬 **Conversas e Canais**")
+st.sidebar.markdown("💬 **Canais de Setor**")
 
 try:
     canais = supabase.table("canais").select("*").order("id").execute().data or []
@@ -202,6 +202,7 @@ for c in canais:
     badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
     label = f"{c['icone']} #{c['nome']}{badge}"
     
+    # Cada chat na lateral funciona como um botão que abre a janela principal ao ser clicado
     if st.sidebar.button(label, key=f"btn_canal_{c['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("canal", c['id'])
         st.rerun()
@@ -299,7 +300,7 @@ if tipo_chat == "relatorios":
     st.stop()
 
 # ---------------------------------------------------------
-# TELA PRINCIPAL DO CHAT - HISTÓRICO COMPLETO NA TELA
+# TELA DA JANELA DE CHAT PRINCIPAL ABERTA
 # ---------------------------------------------------------
 col_chat, col_tarefas = st.columns([2, 1])
 
@@ -312,10 +313,10 @@ with col_chat:
 
     st.markdown(f"<div class='chat-header'><h3>{titulo_janela}</h3></div>", unsafe_allow_html=True)
 
-    # Container contínuo com rolagem fluida exibindo todas as mensagens em sequência
+    # Janela onde as mensagens aparecem uma embaixo da outra ao abrir a conversa
     with st.container(height=480):
         @st.fragment(run_every=3)
-        def renderizar_historico_completo():
+        def renderizar_janela_chat():
             mensagens = []
             try:
                 if tipo_chat == "canal":
@@ -350,7 +351,6 @@ with col_chat:
                     except:
                         pass
 
-                # Exibindo todas as mensagens em sequência (uma embaixo da outra)
                 if is_me:
                     st.markdown(f"""
                         <div class='msg-out'>
@@ -368,7 +368,7 @@ with col_chat:
                         </div>
                     """, unsafe_allow_html=True)
 
-        renderizar_historico_completo()
+        renderizar_janela_chat()
         
         components.html("""
             <script>
@@ -387,7 +387,7 @@ with col_chat:
             </script>
         """, height=0, width=0)
 
-    # Campo de digitação fixo embaixo
+    # Envio de mensagem dentro da janela aberta
     texto_envio = st.chat_input("Digite uma mensagem...")
     if texto_envio:
         try:
