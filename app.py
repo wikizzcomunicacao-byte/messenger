@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 
 # Configuração da página - Layout em largura total
 st.set_page_config(
-    page_title="Senhora Lavanderia - WhatsApp Chats", 
+    page_title="Senhora Lavanderia - WhatsApp", 
     page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -113,24 +113,24 @@ p = {
     "subtext": "#8696a0"
 }
 
-# CSS PERSONALIZADO PARA ESTILIZAR OS BOTÕES DA LATERAL IGUAL WHATSAPP
+# CSS PARA DEIXAR A LISTA DA LATERAL IDÊNTICA À ABA DE CONVERSAS DO WHATSAPP
 st.markdown(f"""
     <style>
         .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
         [data-testid="stSidebar"] {{ background-color: {p['bg_sidebar']} !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }}
         [data-testid="stSidebar"] * {{ color: {p['text']} !important; }}
         
-        /* Deixar os botões da barra lateral com cara de lista de conversas do WhatsApp */
+        /* Estilização dos botões da lista de conversas */
         [data-testid="stSidebar"] .stButton button {{
             background-color: transparent !important;
             border: none !important;
             text-align: left !important;
-            padding: 8px 10px !important;
+            padding: 8px 12px !important;
             border-radius: 8px !important;
-            margin-bottom: 4px !important;
+            margin-bottom: 2px !important;
         }}
         [data-testid="stSidebar"] .stButton button:hover {{
-            background-color: rgba(255, 255, 255, 0.05) !important;
+            background-color: rgba(255, 255, 255, 0.06) !important;
         }}
 
         .msg-out {{
@@ -177,7 +177,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# BARRA LATERAL - ABA DE CONVERSAS RECENTES
+# BARRA LATERAL - ABA DE CONVERSAS (UMA ABAIXO DA OUTRA)
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 💬 Conversas")
 st.sidebar.caption(f"Logado como: {nome_limpo_usuario}")
@@ -208,15 +208,23 @@ for c in canais:
     try:
         msgs_c = supabase.table("mensagens").select("texto, criado_em, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").order("criado_em", desc=True).execute().data or []
         ultima_txt = msgs_c[0].get("texto", "Nenhuma mensagem") if msgs_c else "Toque para iniciar"
+        
+        # Formatar horário da última mensagem
+        hora_ult = ""
+        if msgs_c and msgs_c[0].get("criado_em"):
+            dt_ult = datetime.fromisoformat(msgs_c[0]["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
+            hora_ult = dt_ult.strftime("%H:%M")
+            
         nao_lidas = sum(1 for m in msgs_c if not m.get("usuario_nome", "").startswith(nome_limpo_usuario) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
     except:
         ultima_txt = "Toque para iniciar"
+        hora_ult = ""
         nao_lidas = 0
         
     badge = f" 🟢 {nao_lidas}" if nao_lidas > 0 else ""
     
-    # Ao clicar, atualiza o estado e força o rerun imediato
-    if st.sidebar.button(f"📢 **#{c['nome']}**{badge}\n💬 {ultima_txt[:26]}...", key=f"btn_canal_{c['id']}", use_container_width=True):
+    # Exibe em formato bloco vertical idêntico ao WhatsApp
+    if st.sidebar.button(f"📢 **#{c['nome']}** {hora_ult}{badge}\n💬 {ultima_txt[:26]}...", key=f"btn_canal_{c['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("canal", c['id'])
         st.rerun()
 
@@ -232,14 +240,20 @@ for u in outros_usuarios:
         todas_dm = sorted(res1 + res2, key=lambda x: x.get('criado_em', ''), reverse=True)
         ultima_txt_dm = todas_dm[0].get("texto", "Nenhuma conversa") if todas_dm else "Nenhuma conversa"
         
+        hora_ult_dm = ""
+        if todas_dm and todas_dm[0].get("criado_em"):
+            dt_dm = datetime.fromisoformat(todas_dm[0]["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
+            hora_ult_dm = dt_dm.strftime("%H:%M")
+            
         nao_lidas_dm = sum(1 for m in res2 if (m.get("usuario_nome", "").startswith(u['nome']) or m.get("usuario_nome") == u['nome']) and usuario_atual['id'] not in (m.get("leituras_confirmadas") or []))
     except:
         ultima_txt_dm = "Nenhuma conversa"
+        hora_ult_dm = ""
         nao_lidas_dm = 0
         
     badge_dm = f" 🟢 {nao_lidas_dm}" if nao_lidas_dm > 0 else ""
     
-    if st.sidebar.button(f"👤 **{u['nome']}**{badge_dm}\n💬 {ultima_txt_dm[:26]}...", key=f"btn_dm_{u['id']}", use_container_width=True):
+    if st.sidebar.button(f"👤 **{u['nome']}** {hora_ult_dm}{badge_dm}\n💬 {ultima_txt_dm[:26]}...", key=f"btn_dm_{u['id']}", use_container_width=True):
         st.session_state["chat_ativo"] = ("dm", u)
         st.rerun()
 
