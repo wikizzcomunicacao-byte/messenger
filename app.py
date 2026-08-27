@@ -1,582 +1,381 @@
+from datetime import datetime
 import streamlit as st
-from supabase import create_client, Client
-from datetime import datetime, timedelta, timezone
-import streamlit.components.v1 as components
-import pytz
 
-# Configuração da página - Barra lateral fixa
+# Configuração da página
 st.set_page_config(
-    page_title="Senhora Lavanderia", 
-    page_icon="💬", 
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Mural da Empresa", page_icon="💬", layout="wide"
 )
 
-# 1. CONEXÃO COM O SUPABASE
-@st.cache_resource
-def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets.get("SUPABASE_SERVICE_KEY", st.secrets["SUPABASE_KEY"])
-    return create_client(url, key)
-
-try:
-    supabase = init_supabase()
-except Exception as e:
-    st.error("⚠️ Erro de conexão com o Supabase.")
-    st.stop()
-
-# 2. FUNÇÃO DE REGISTRO DE LOGS DE AUDITORIA
-def registrar_log(usuario_id, usuario_nome, setor, acao, detalhes=""):
-    try:
-        supabase.table("logs_acesso").insert({
-            "usuario_id": usuario_id,
-            "usuario_nome": usuario_nome,
-            "setor": setor,
-            "acao": acao,
-            "detalhes": detalhes
-        }).execute()
-    except Exception:
-        pass
-
-# 3. GERENCIAMENTO DE SESSÃO / LOGIN
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
-if "usuario_logado" not in st.session_state:
-    st.session_state["usuario_logado"] = None
-if "ultima_qtd_msgs" not in st.session_state:
-    st.session_state["ultima_qtd_msgs"] = 0
-if "notificacoes_fechadas" not in st.session_state:
-    st.session_state["notificacoes_fechadas"] = set()
-
-def buscar_usuarios():
-    try:
-        res = supabase.table("usuarios").select("*").order("nome").execute()
-        return res.data or []
-    except Exception:
-        return []
-
-# FUSO HORÁRIO DE BRASÍLIA (UTC-3 Fixo)
-fuso_brasilia = timezone(timedelta(hours=-3))
-
-# TELA DE LOGIN COM RESTRIÇÃO DE HORÁRIO DE EXPEDIENTE
-if not st.session_state["autenticado"]:
-    st.markdown("<h2 style='text-align: center;'>🔒 Login - Senhora Lavanderia</h2>", unsafe_allow_html=True)
-    
-    agora_local = datetime.now(fuso_brasilia)
-    hora_atual = agora_local.hour
-    dia_semana = agora_local.weekday()
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        with st.form("form_login"):
-            usuarios = buscar_usuarios()
-            mapa_usuarios = {f"{u['nome']} ({u['setor']})": u for u in usuarios}
-            
-            usuario_selecionado = st.selectbox("Selecione seu perfil:", list(mapa_usuarios.keys()) if mapa_usuarios else ["Nenhum usuário encontrado"])
-            senha_input = st.text_input("Sua senha:", type="password")
-            
-            btn_entrar = st.form_submit_button("Entrar no Chat", use_container_width=True)
-            
-            if btn_entrar and usuarios:
-                dados_usuario = mapa_usuarios[usuario_selecionado]
-                eh_admin = dados_usuario.get("eh_admin", False)
-                hora_inicio = dados_usuario.get("hora_inicio_expediente", 7)
-                hora_fim = dados_usuario.get("hora_fim_expediente", 22)
-
-                fora_do_expediente = (hora_atual < hora_inicio or hora_atual >= hora_fim or dia_semana >= 5)
-
-                if fora_do_expediente and not eh_admin:
-                    st.error(f"⏰ Acesso negado! Seu expediente é das {hora_inicio}h às {hora_fim}h.")
-                elif senha_input == dados_usuario.get("senha", "123456"):
-                    st.session_state["autenticado"] = True
-                    st.session_state["usuario_logado"] = dados_usuario
-                    try:
-                        tot_msgs = supabase.table("mensagens").select("id", count="exact").execute().data or []
-                        st.session_state["ultima_qtd_msgs"] = len(tot_msgs)
-                    except:
-                        st.session_state["ultima_qtd_msgs"] = 0
-                    registrar_log(dados_usuario['id'], dados_usuario['nome'], dados_usuario['setor'], "LOGIN", f"Login às {agora_local.strftime('%H:%M')}")
-                    st.success("Login realizado com sucesso!")
-                    st.rerun()
-                else:
-                    st.error("Senha incorreta. Tente novamente.")
-    st.stop()
-
-# ---------------------------------------------------------
-# APLICATIVO LIBERADO APÓS LOGIN
-# ---------------------------------------------------------
-usuario_atual = st.session_state["usuario_logado"]
-todos_usuarios = buscar_usuarios()
-nome_limpo_usuario = usuario_atual['nome'].replace("*", "").strip()
-nome_formatado_logado = f"{nome_limpo_usuario} ({usuario_atual['setor']})"
-
-# TEMA FIXO: ESCURO PADRÃO (WHATSAPP)
-p = {
-    "bg_app": "#0b141a", 
-    "bg_sidebar": "#111b21", 
-    "bg_msg": "#202c33", 
-    "primary": "#00a884", 
-    "text": "#e9edef"
+# Constantes e Cores
+ADMIN_PASSWORD = "admin123"
+DEPT_COLORS = {
+    "Vendas": "#E8A33D",
+    "Suporte": "#2F8F82",
+    "Financeiro": "#8B6FB3",
+    "RH": "#D9645F",
+    "TI": "#3F7CAC",
+    "Operações": "#B08B3F",
+    "Diretoria": "#16232E",
 }
 
-# CSS DINÂMICO
-st.markdown(f"""
-    <style>
-        .stApp {{ background-color: {p['bg_app']} !important; color: {p['text']} !important; }}
-        [data-testid="stSidebar"] {{ background-color: {p['bg_sidebar']} !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }}
-        [data-testid="stSidebar"] * {{ color: {p['text']} !important; }}
-        [data-testid="stChatMessage"] {{ background-color: {p['bg_msg']} !important; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: {p['text']} !important; }}
-        [data-testid="stChatMessage"] * {{ color: {p['text']} !important; }}
-        .stButton button {{ background-color: {p['primary']} !important; color: #ffffff !important; border: none !important; border-radius: 6px; }}
-        h1, h2, h3, p, span {{ color: {p['text']} !important; }}
-        
-        [data-testid="stSidebarCollapseButton"],
-        [data-testid="collapsedControl"] {{
-            display: none !important;
-        }}
-    </style>
-""", unsafe_allow_html=True)
+# --- INICIALIZAÇÃO DO ESTADO (SESSION STATE) ---
+if "view" not in st.session_state:
+  st.session_state.view = "landing"  # landing, adminLogin, admin, employeeLogin, chat
+if "employees" not in st.session_state:
+  st.session_state.employees = []
+if "groups" not in st.session_state:
+  st.session_state.groups = []
+if "messages" not in st.session_state:
+  st.session_state.messages = []
+if "current_user" not in st.session_state:
+  st.session_state.current_user = None
+if "active_conv" not in st.session_state:
+  st.session_state.active_conv = None  # ('ind', id_outro) ou ('grp', id_grupo)
+if "error_msg" not in st.session_state:
+  st.session_state.error_msg = ""
 
-# ---------------------------------------------------------
-# CÁLCULO E CAPTURA DE MENSAGENS NÃO LIDAS
-# ---------------------------------------------------------
-mensagens_nao_lidas_detalhes = []
-try:
-    todas_as_msgs = supabase.table("mensagens").select("id, texto, criado_em, leituras_confirmadas, usuario_nome, destinatario_id, canal_id").execute().data or []
-    for m in todas_as_msgs:
-        msg_id = m.get("id")
-        if msg_id in st.session_state["notificacoes_fechadas"]:
-            continue
-        remetente = m.get("usuario_nome", "")
-        if not remetente.startswith(nome_limpo_usuario):
-            dest_id = m.get("destinatario_id")
-            canal_ref = m.get("canal_id")
-            if dest_id == usuario_atual['id'] or (canal_ref is not None and dest_id is None):
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    mensagens_nao_lidas_detalhes.append(m)
-except:
-    pass
 
-total_geral_nao_lidas = len(mensagens_nao_lidas_detalhes)
+# Funções Utilitárias
+def get_initials(name):
+  words = (name or "").strip().split()
+  return (
+      "".join([w[0].upper() for w in words[:2]]) if words else "?"
+  )
 
-# BARRA LATERAL - PERFIL E MINI-CHATS DE RESPOSTA RÁPIDA
-if total_geral_nao_lidas > 0:
-    st.sidebar.markdown(f"🔔 **{nome_limpo_usuario}** <span style='background-color: #25d366; color: black; padding: 2px 6px; border-radius: 10px; font-size: 0.7em;'>{total_geral_nao_lidas} novas</span>", unsafe_allow_html=True)
-    
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("💬 **Mini-Chats Pendentes:**")
-    
-    for mn in mensagens_nao_lidas_detalhes:
-        m_id = mn.get("id")
-        rem = mn.get("usuario_nome", "Alguém")
-        txt = mn.get("texto", "")
-        
-        with st.sidebar.container(border=True):
-            col_info, col_x = st.columns([5, 1])
-            with col_info:
-                st.markdown(f"**{rem}**")
-                st.caption(txt)
-            with col_x:
-                if st.button("✕", key=f"fechar_notif_{m_id}"):
-                    st.session_state["notificacoes_fechadas"].add(m_id)
-                    st.rerun()
-            
-            resposta_mini = st.text_input("Responder:", key=f"resp_mini_{m_id}", placeholder="Digite e aperte Enter")
-            if resposta_mini:
-                try:
-                    canal_id_env = mn.get("canal_id")
-                    dest_id_env = mn.get("destinatario_id")
-                    
-                    if dest_id_env == usuario_atual['id']:
-                        nome_remetente_original = rem.split("(")[0].strip()
-                        autor_msg = next((u for u in todos_usuarios if u['nome'].replace("*", "").strip() == nome_remetente_original), None)
-                        novo_dest_id = autor_msg['id'] if autor_msg else None
-                        novo_canal_id = None
-                    else:
-                        novo_canal_id = canal_id_env
-                        novo_dest_id = None
 
-                    supabase.table("mensagens").insert({
-                        "canal_id": novo_canal_id,
-                        "usuario_nome": nome_formatado_logado,
-                        "texto": resposta_mini,
-                        "destinatario_id": novo_dest_id,
-                        "leituras_confirmadas": [usuario_atual['id']]
-                    }).execute()
-                    
-                    leituras = mn.get("leituras_confirmadas") or []
-                    if usuario_atual['id'] not in leituras:
-                        leituras.append(usuario_atual['id'])
-                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", m_id).execute()
-                    
-                    st.session_state["notificacoes_fechadas"].add(m_id)
-                    st.success("Enviado!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-else:
-    st.sidebar.title(f"👤 {nome_limpo_usuario}")
+def format_time(ts):
+  return datetime.fromtimestamp(ts / 1000).strftime("%H:%M")
 
-st.sidebar.caption(f"Setor: {usuario_atual['setor']}")
-st.sidebar.markdown(f"**Expediente:** {usuario_atual.get('hora_inicio_expediente', 7)}h às {usuario_atual.get('hora_fim_expediente', 22)}h")
 
-if usuario_atual.get("eh_admin"):
-    st.sidebar.success("👑 Administrador")
+# ==========================================
+# 1. TELA: LANDING PAGE
+# ==========================================
+def render_landing():
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.markdown(
+        "<h1 style='text-align: center;'>💬 Mural da Empresa</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align: center; color: gray;'>Protótipo de"
+        " comunicação interna corporativa.</p>",
+        unsafe_allow_html=True,
+    )
+    st.write("")
 
-if st.sidebar.button("🚪 Sair", use_container_width=True):
-    registrar_log(usuario_atual['id'], nome_limpo_usuario, usuario_atual['setor'], "LOGOFF", "Encerrou a sessão")
-    st.session_state["autenticado"] = False
-    st.session_state["usuario_logado"] = None
+    if st.button("👤 Sou funcionário", use_container_width=True):
+      st.session_state.error_msg = ""
+      st.session_state.view = "employeeLogin"
+      st.rerun()
+
+    if st.button("🛠️ Sou administrador", use_container_width=True):
+      st.session_state.error_msg = ""
+      st.session_state.view = "adminLogin"
+      st.rerun()
+
+    st.info(
+        "💡 **Aviso:** Este é um protótipo de demonstração. Dados salvos"
+        " reiniciam se o servidor for reciclado."
+    )
+
+
+# ==========================================
+# 2. TELA: LOGIN ADMIN
+# ==========================================
+def render_admin_login():
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.subheader("Painel do Administrador")
+    st.caption(f"Senha padrão de demonstração: `{ADMIN_PASSWORD}`")
+
+    pwd = st.text_input("Senha do administrador", type="password")
+
+    if st.button("Entrar", use_container_width=True):
+      if pwd == ADMIN_PASSWORD:
+        st.session_state.view = "admin"
+        st.rerun()
+      else:
+        st.error("Senha incorreta.")
+
+    if st.button("Voltar", use_container_width=True):
+      st.session_state.view = "landing"
+      st.rerun()
+
+
+# ==========================================
+# 3. TELA: PAINEL DO ADMINISTRADOR
+# ==========================================
+def render_admin_dashboard():
+  st.title("🛠️ Painel do Administrador")
+
+  if st.button("Sair para o Início"):
+    st.session_state.view = "landing"
     st.rerun()
 
-st.sidebar.divider()
+  st.divider()
 
-# OPÇÕES DE NAVEGAÇÃO PRINCIPAL
-opcoes_modo = ["🏢 Canais de Setor", "👤 Mensagens Diretas (DM)"]
-if usuario_atual.get("eh_admin"):
-    opcoes_modo.append("⚙️ Admin")
-    opcoes_modo.append("📊 Relatórios")
+  tab1, tab2 = st.tabs(["👥 Funcionários", "📁 Grupos"])
 
-tipo_chat = st.sidebar.radio("Navegação:", opcoes_modo)
+  with tab1:
+    st.subheader("Gerenciar Funcionários")
 
-# ---------------------------------------------------------
-# TELA: PAINEL DE GESTÃO (ADMIN) COM REMOÇÃO SEGURA
-# ---------------------------------------------------------
-if tipo_chat == "⚙️ Admin":
-    st.title("⚙️ Gestão de Usuários e Sistema")
-    col_cad, col_lista = st.columns(2)
-    
-    setores_existentes = ["licitacao", "compras", "financeiro", "farmaceutica", "estoque", "faturamento-pedidos", "cotacao", "loja-online", "geral"]
+    with st.form("form_add_emp", clear_on_submit=True):
+      col_a, col_b = st.columns(2)
+      with col_a:
+        name = st.text_input("Nome completo")
+        username = st.text_input("Usuário (login)")
+      with col_b:
+        password = st.text_input("Senha", type="password")
+        dept = st.selectbox("Departamento", list(DEPT_COLORS.keys()))
 
-    with col_cad:
-        st.subheader("➕ Cadastrar Colaborador")
-        with st.form("form_novo_usuario"):
-            novo_nome = st.text_input("Nome Completo:")
-            novo_setor = st.selectbox("Setor:", setores_existentes)
-            nova_senha = st.text_input("Senha:", value="123456")
-            h_inicio = st.number_input("Início Expediente:", value=7, min_value=0, max_value=23)
-            h_fim = st.number_input("Fim Expediente:", value=22, min_value=0, max_value=23)
-            e_admin = st.checkbox("Administrador")
-            
-            if st.form_submit_button("Cadastrar"):
-                if novo_nome:
-                    try:
-                        supabase.table("usuarios").insert({
-                            "nome": novo_nome, "setor": novo_setor, "senha": nova_senha,
-                            "hora_inicio_expediente": h_inicio, "hora_fim_expediente": h_fim, "eh_admin": e_admin
-                        }).execute()
-                        st.success("Cadastrado com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao cadastrar: {e}")
+      submit_emp = st.form_submit_button("Cadastrar Funcionário")
+      if submit_emp:
+        if not name or not username or not password:
+          st.error("Preencha todos os campos!")
+        elif any(e["username"] == username for e in st.session_state.employees):
+          st.error("Já existe um funcionário com esse usuário.")
+        else:
+          new_emp = {
+              "id": "e_" + str(int(datetime.now().timestamp() * 1000)),
+              "name": name,
+              "username": username,
+              "password": password,
+              "department": dept,
+          }
+          st.session_state.employees.append(new_emp)
+          st.success(f"Funcionário {name} cadastrado com sucesso!")
+          st.rerun()
 
-    with col_lista:
-        st.subheader("👥 Usuários & Gerenciamento")
-        for u in todos_usuarios:
-            with st.container(border=True):
-                st.markdown(f"**{u['nome']}** ({u['setor']})")
-                
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    if st.button("✏️ Editar", key=f"edit_toggle_{u['id']}"):
-                        st.session_state[f"editando_{u['id']}"] = not st.session_state.get(f"editando_{u['id']}", False)
-                        st.rerun()
-                with col_btn2:
-                    if u['id'] != usuario_atual['id']:
-                        if st.button("❌ Remover", key=f"del_u_{u['id']}"):
-                            try:
-                                # Remove primeiro as referências nas mensagens e DMs para evitar erro de chave estrangeira
-                                supabase.table("mensagens").delete().eq("destinatario_id", u['id']).execute()
-                                # Agora remove o usuário com segurança
-                                supabase.table("usuarios").delete().eq("id", u['id']).execute()
-                                
-                                st.success(f"Usuário {u['nome']} removido com sucesso!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erro ao remover: {e}")
-                
-                # Formulário de Edição Inline se ativado
-                if st.session_state.get(f"editando_{u['id']}", False):
-                    with st.form(f"form_edit_{u['id']}"):
-                        st.markdown("---")
-                        st.markdown(f"**Editando: {u['nome']}**")
-                        ed_nome = st.text_input("Nome Completo:", value=u['nome'], key=f"n_{u['id']}")
-                        
-                        idx_setor = setores_existentes.index(u['setor']) if u['setor'] in setores_existentes else 0
-                        ed_setor = st.selectbox("Setor:", setores_existentes, index=idx_setor, key=f"s_{u['id']}")
-                        
-                        ed_senha = st.text_input("Senha:", value=u.get('senha', '123456'), key=f"p_{u['id']}")
-                        ed_h_inicio = st.number_input("Início Expediente:", value=int(u.get('hora_inicio_expediente', 7)), min_value=0, max_value=23, key=f"hi_{u['id']}")
-                        ed_h_fim = st.number_input("Fim Expediente:", value=int(u.get('hora_fim_expediente', 22)), min_value=0, max_value=23, key=f"hf_{u['id']}")
-                        ed_admin = st.checkbox("Administrador", value=u.get('eh_admin', False), key=f"adm_{u['id']}")
-                        
-                        if st.form_submit_button("Salvar Alterações"):
-                            try:
-                                supabase.table("usuarios").update({
-                                    "nome": ed_nome,
-                                    "setor": ed_setor,
-                                    "senha": ed_senha,
-                                    "hora_inicio_expediente": ed_h_inicio,
-                                    "hora_fim_expediente": ed_h_fim,
-                                    "eh_admin": ed_admin
-                                }).eq("id", u['id']).execute()
-                                
-                                st.session_state[f"editando_{u['id']}"] = False
-                                st.success("Atualizado com sucesso!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erro ao atualizar: {e}")
-    st.stop()
-
-# ---------------------------------------------------------
-# TELA: RELATÓRIOS E LOGS (ADMIN)
-# ---------------------------------------------------------
-if tipo_chat == "📊 Relatórios":
-    st.title("📊 Relatórios e Logs de Auditoria")
-    try:
-        logs = supabase.table("logs_acesso").select("*").order("criado_em", desc=True).limit(50).execute().data or []
-    except:
-        logs = []
-    st.dataframe(logs, hide_index=True, use_container_width=True)
-    st.stop()
-
-# ---------------------------------------------------------
-# NAVEGAÇÃO CHAT (CANAIS / DMs)
-# ---------------------------------------------------------
-canal_id = None
-destinatario = None
-membros_canal = []
-
-if tipo_chat == "🏢 Canais de Setor":
-    st.sidebar.divider()
-    st.sidebar.subheader("Canal:")
-    try:
-        canais = supabase.table("canais").select("*").order("id").execute().data or []
-    except:
-        canais = []
-    
-    mapa_canais = {}
-    for c in canais:
-        try:
-            msgs_canal = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome").eq("canal_id", c['id']).is_("destinatario_id", "null").execute().data or []
-        except:
-            msgs_canal = []
-            
-        nao_lidas = 0
-        for m in msgs_canal:
-            remetente = m.get("usuario_nome", "")
-            if not remetente.startswith(nome_limpo_usuario):
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    nao_lidas += 1
-        badge = f" 🟢 ({nao_lidas})" if nao_lidas > 0 else ""
-        label = f"{c['icone']} #{c['nome']}{badge}"
-        mapa_canais[label] = c
-
-    if mapa_canais:
-        canal_nome_sel = st.sidebar.radio("Selecione:", list(mapa_canais.keys()), label_visibility="collapsed")
-        obj_canal = mapa_canais[canal_nome_sel]
-        canal_id = obj_canal['id']
-        canal_nome_limpo = obj_canal['nome']
-        titulo_chat = f"#{canal_nome_limpo}"
-        membros_canal = todos_usuarios if canal_nome_limpo == "geral" else [u for u in todos_usuarios if u['setor'].lower() in canal_nome_limpo.lower()]
+    st.divider()
+    st.markdown("### Funcionários Cadastrados")
+    if not st.session_state.employees:
+      st.caption("Nenhum funcionário cadastrado ainda.")
     else:
-        titulo_chat = "#geral"
-else:
-    st.sidebar.divider()
-    outros = [u for u in todos_usuarios if u['id'] != usuario_atual['id']]
-    
-    mapa_dms = {}
-    for u in outros:
-        try:
-            dm_nao_lidas = supabase.table("mensagens").select("id, leituras_confirmadas, usuario_nome, destinatario_id").eq("destinatario_id", usuario_atual['id']).execute().data or []
-        except:
-            dm_nao_lidas = []
-            
-        qtd_dm = 0
-        for m in dm_nao_lidas:
-            remetente = m.get("usuario_nome", "")
-            if remetente.startswith(u['nome']) or remetente == u['nome']:
-                leituras = m.get("leituras_confirmadas") or []
-                if usuario_atual['id'] not in leituras:
-                    qtd_dm += 1
-        badge_dm = f" 🟢 ({qtd_dm})" if qtd_dm > 0 else ""
-        label_dm = f"👤 {u['nome']} ({u['setor']}){badge_dm}"
-        mapa_dms[label_dm] = u
-
-    if mapa_dms:
-        usuario_dm_sel = st.sidebar.selectbox("Falar com:", list(mapa_dms.keys()))
-        destinatario = mapa_dms[usuario_dm_sel]
-        titulo_chat = f"Conversa com {destinatario['nome']}"
-    else:
-        titulo_chat = "Conversa Direta"
-
-# INTERFACE PRINCIPAL DO CHAT E TAREFAS
-col_chat, col_tarefas = st.columns([2, 1])
-
-with col_chat:
-    if total_geral_nao_lidas > 0:
-        st.markdown(f"### 🔔 {titulo_chat} <span style='font-size: 0.6em; background-color: #25d366; color: black; padding: 2px 8px; border-radius: 10px;'>{total_geral_nao_lidas} novas mensagens</span>", unsafe_allow_html=True)
-    else:
-        st.subheader(titulo_chat)
-
-    with st.container(height=480):
-        @st.fragment(run_every=3)
-        def renderizar_mensagens():
-            try:
-                todas_atuais = supabase.table("mensagens").select("id, usuario_nome, texto").execute().data or []
-            except:
-                todas_atuais = []
-            qtd_atual = len(todas_atuais)
-            
-            if qtd_atual > st.session_state["ultima_qtd_msgs"]:
-                st.session_state["ultima_qtd_msgs"] = qtd_atual
-
-            mensagens = []
-            try:
-                if tipo_chat == "🏢 Canais de Setor" and canal_id:
-                    mensagens = supabase.table("mensagens").select("*").eq("canal_id", canal_id).is_("destinatario_id", "null").order("criado_em", desc=False).execute().data or []
-                elif destinatario:
-                    res1 = supabase.table("mensagens").select("*").eq("usuario_nome", nome_formatado_logado).eq("destinatario_id", destinatario['id']).execute().data or []
-                    res2 = supabase.table("mensagens").select("*").eq("usuario_nome", f"{destinatario['nome']} ({destinatario['setor']})").eq("destinatario_id", usuario_atual['id']).execute().data or []
-                    res3 = supabase.table("mensagens").select("*").eq("usuario_nome", destinatario['nome']).eq("destinatario_id", usuario_atual['id']).execute().data or []
-                    
-                    todas_mensagens = {m['id']: m for m in (res1 + res2 + res3)}
-                    mensagens = sorted(list(todas_mensagens.values()), key=lambda x: x['criado_em'])
-            except:
-                mensagens = []
-
-            for msg in mensagens:
-                remetente_msg = msg.get("usuario_nome", "")
-                is_me = remetente_msg.startswith(nome_limpo_usuario)
-                avatar = "🟢" if is_me else "👤"
-                
-                leituras = msg.get("leituras_confirmadas") or []
-                if not is_me and usuario_atual['id'] not in leituras:
-                    leituras.append(usuario_atual['id'])
-                    try:
-                        supabase.table("mensagens").update({"leituras_confirmadas": leituras}).eq("id", msg['id']).execute()
-                    except:
-                        pass
-
-                hora_formatada = ""
-                if msg.get("criado_em"):
-                    try:
-                        dt_local = datetime.fromisoformat(msg["criado_em"].replace("Z", "+00:00")).astimezone(fuso_brasilia)
-                        hora_formatada = dt_local.strftime("%H:%M")
-                    except:
-                        pass
-
-                with st.chat_message("user", avatar=avatar):
-                    col_nome, col_hora = st.columns([5, 1])
-                    with col_nome:
-                        st.markdown(f"**{remetente_msg}**")
-                    with col_hora:
-                        if hora_formatada:
-                            st.markdown(f"<div style='text-align: right; color: gray; font-size: 0.85em;'>{hora_formatada}</div>", unsafe_allow_html=True)
-
-                    if msg.get('texto'):
-                        st.write(msg['texto'])
-
-                    if msg.get("arquivo_url"):
-                        url_arq = msg.get("arquivo_url")
-                        nome_display = url_arq.split("/")[-1].split("_", 1)[-1] if "_" in url_arq else "documento"
-                        st.markdown(f"<a href='{url_arq}' target='_blank'>📥 Baixar Arquivo ({nome_display})</a>", unsafe_allow_html=True)
-
-                    if not is_me:
-                        st.markdown("<div style='text-align: right; font-size: 0.75em; color: #0284c7;'>✔️ Visualizado</div>", unsafe_allow_html=True)
-
-                    if usuario_atual.get("eh_admin"):
-                        if st.button("🗑️ Apagar", key=f"del_{msg['id']}"):
-                            try:
-                                supabase.table("mensagens").delete().eq("id", msg['id']).execute()
-                                st.rerun()
-                            except:
-                                pass
-
-        renderizar_mensagens()
-        
-        components.html("""
-            <script>
-                const doc = window.parent.document;
-                function autoScroll() {
-                    const scrollBoxes = doc.querySelectorAll('div[data-testid="stVerticalBlockBorderWrapper"]');
-                    scrollBoxes.forEach(box => {
-                        const inner = box.querySelector('div[style*="overflow"]');
-                        if (inner) {
-                            inner.scrollTop = inner.scrollHeight;
-                        }
-                    });
-                    const containers = doc.querySelectorAll('div[data-testid="stVerticalBlock"]');
-                    containers.forEach(el => {
-                        if (el.scrollHeight > el.clientHeight && el.style.overflow !== 'hidden') {
-                            el.scrollTop = el.scrollHeight;
-                        }
-                    });
-                }
-                setTimeout(autoScroll, 50);
-                setTimeout(autoScroll, 200);
-            </script>
-        """, height=0, width=0)
-    
-    prompt = st.chat_input("Digite sua mensagem e aperte Enter...", key="chat_input_chat_principal")
-    
-    if prompt:
-        try:
-            supabase.table("mensagens").insert({
-                "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" else None,
-                "usuario_nome": nome_formatado_logado,
-                "texto": prompt,
-                "destinatario_id": destinatario['id'] if tipo_chat == "👤 Mensagens Diretas (DM)" and destinatario else None,
-                "leituras_confirmadas": [usuario_atual['id']]
-            }).execute()
+      for emp in st.session_state.employees:
+        c1, c2, c3 = st.columns([3, 2, 1])
+        with c1:
+          st.write(f"**{emp['name']}** (`@{emp['username']}`)")
+        with c2:
+          st.caption(f"Depto: {emp['department']}")
+        with c3:
+          if st.button("Remover", key=f"del_emp_{emp['id']}"):
+            st.session_state.employees = [
+                e for e in st.session_state.employees if e["id"] != emp["id"]
+            ]
             st.rerun()
-        except Exception as e:
-            st.error(f"Erro ao enviar mensagem: {e}")
 
-with col_tarefas:
-    st.subheader("📋 Tarefas")
-    
-    @st.fragment(run_every=3)
-    def renderizar_tarefas():
-        c_id_tarefa = canal_id if tipo_chat == "🏢 Canais de Setor" and canal_id else 1
-        try:
-            tarefas = supabase.table("tarefas").select("*").eq("canal_id", c_id_tarefa).order("id", desc=True).execute().data or []
-        except:
-            tarefas = []
-        
-        for t in tarefas:
-            with st.container(border=True):
-                status_cor = "🟢" if t['status'] == "Concluído" else "⏳"
-                st.markdown(f"{status_cor} **{t['status']}**")
-                st.write(t['titulo'])
-                st.caption(f"Atribuído a: {t.get('atribuido_a', 'Geral')}")
-                
-                if t['status'] != "Concluído":
-                    if st.button("Marcar Concluída", key=f"t_{t['id']}"):
-                        try:
-                            supabase.table("tarefas").update({"status": "Concluído"}).eq("id", t['id']).execute()
-                            st.rerun()
-                        except:
-                            pass
+  with tab2:
+    st.subheader("Gerenciar Grupos")
 
-    renderizar_tarefas()
+    with st.form("form_add_grp", clear_on_submit=True):
+      grp_name = st.text_input("Nome do Grupo (ex: Time de Vendas)")
+      member_options = {e["name"]: e["id"] for e in st.session_state.employees}
+      selected_member_names = st.multiselect(
+          "Selecione os membros", options=list(member_options.keys())
+      )
 
-    with st.expander("+ Criar Nova Tarefa"):
-        nova_tarefa_titulo = st.text_input("Descrição da tarefa:")
-        opcoes_membros = ["Todos do Setor"] + [u['nome'] for u in (membros_canal if tipo_chat == "🏢 Canais de Setor" else todos_usuarios)]
-        responsavel_sel = st.selectbox("Atribuir a:", opcoes_membros)
-        
-        if st.button("Salvar Tarefa"):
-            if nova_tarefa_titulo:
-                try:
-                    supabase.table("tarefas").insert({
-                        "canal_id": canal_id if tipo_chat == "🏢 Canais de Setor" and canal_id else 1,
-                        "titulo": nova_tarefa_titulo,
-                        "atribuido_a": responsavel_sel,
-                        "status": "Pendente"
-                    }).execute()
-                    st.rerun()
-                except:
-                    pass
+      submit_grp = st.form_submit_button("Criar Grupo")
+      if submit_grp:
+        if not grp_name or not selected_member_names:
+          st.error("Informe o nome do grupo e selecione ao menos um membro.")
+        else:
+          member_ids = [member_options[name] for name in selected_member_names]
+          new_grp = {
+              "id": "g_" + str(int(datetime.now().timestamp() * 1000)),
+              "name": grp_name,
+              "members": member_ids,
+          }
+          st.session_state.groups.append(new_grp)
+          st.success(f"Grupo '{grp_name}' criado com sucesso!")
+          st.rerun()
+
+    st.divider()
+    st.markdown("### Grupos Criados")
+    if not st.session_state.groups:
+      st.caption("Nenhum grupo criado ainda.")
+    else:
+      for grp in st.session_state.groups:
+        c1, c2, c3 = st.columns([3, 2, 1])
+        with c1:
+          st.write(f"**{grp['name']}**")
+        with c2:
+          st.caption(f"{len(grp['members'])} membro(s)")
+        with c3:
+          if st.button("Remover", key=f"del_grp_{grp['id']}"):
+            st.session_state.groups = [
+                g for g in st.session_state.groups if g["id"] != grp["id"]
+            ]
+            st.rerun()
+
+
+# ==========================================
+# 4. TELA: LOGIN DE FUNCIONÁRIO
+# ==========================================
+def render_employee_login():
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.subheader("Entrar no Chat")
+    st.caption("Use o usuário e a senha cadastrados pelo administrador.")
+
+    username = st.text_input("Usuário")
+    pwd = st.text_input("Senha", type="password")
+
+    if st.session_state.error_msg:
+      st.error(st.session_state.error_msg)
+
+    if st.button("Entrar", use_container_width=True):
+      emp = next(
+          (
+              e
+              for e in st.session_state.employees
+              if e["username"] == username.strip() and e["password"] == pwd
+          ),
+          None,
+      )
+      if emp:
+        st.session_state.current_user = emp
+        st.session_state.error_msg = ""
+        st.session_state.view = "chat"
+        st.rerun()
+      else:
+        st.session_state.error_msg = "Usuário ou senha inválidos."
+        st.rerun()
+
+    if st.button("Voltar", use_container_width=True):
+      st.session_state.view = "landing"
+      st.rerun()
+
+
+# ==========================================
+# 5. TELA: APLICAÇÃO DE CHAT PRINCIPAL
+# ==========================================
+def render_chat_app():
+  me = st.session_state.current_user
+
+  # Barra Lateral (Sidebar) para conversas
+  with st.sidebar:
+    st.write(f"👤 **{me['name']}**")
+    st.caption(f"Depto: {me['department']}")
+    if st.button("Sair / Logout"):
+      st.session_state.current_user = None
+      st.session_state.active_conv = None
+      st.session_state.view = "landing"
+      st.rerun()
+
+    st.divider()
+    st.markdown("### Conversas")
+
+    # Listar conversas individuais (outros funcionários)
+    others = [e for e in st.session_state.employees if e["id"] != me["id"]]
+    my_groups = [g for g in st.session_state.groups if me["id"] in g["members"]]
+
+    st.caption("Mensagens Diretas")
+    for other in others:
+      # Cria um ID único consistente para o chat DM entre dois usuários
+      dm_key = "dm:" + "_".join(sorted([me["id"], other["id"]]))
+      label = f"💬 {other['name']} ({other['department']})"
+      if st.button(label, key=f"btn_dm_{other['id']}", use_container_width=True):
+        st.session_state.active_conv = ("ind", dm_key, other["name"])
+        st.rerun()
+
+    if my_groups:
+      st.caption("Grupos")
+      for grp in my_groups:
+        grp_key = "grp:" + grp["id"]
+        label = f"👥 {grp['name']}"
+        if st.button(
+            label, key=f"btn_grp_{grp['id']}", use_container_width=True
+        ):
+          st.session_state.active_conv = ("grp", grp_key, grp["name"])
+          st.rerun()
+
+  # Área principal do Chat
+  if not st.session_state.active_conv:
+    st.info("👈 Selecione uma conversa na barra lateral para começar a conversar.")
+  else:
+    conv_type, conv_id, conv_name = st.session_state.active_conv
+    st.subheader(f"Conversa: {conv_name}")
+    st.divider()
+
+    # Container de mensagens com rolagem simulada
+    chat_container = st.container(height=400)
+
+    # Filtrar mensagens da conversa atual
+    conv_messages = [
+        m for m in st.session_state.messages if m["convId"] == conv_id
+    ]
+
+    with chat_container:
+      if not conv_messages:
+        st.caption("Nenhuma mensagem ainda. Envie a primeira!")
+      else:
+        for m in conv_messages:
+          sender = next(
+              (
+                  e
+                  for e in st.session_state.employees
+                  if e["id"] == m["senderId"]
+              ),
+              None,
+          )
+          sender_name = sender["name"] if sender else "Desconhecido"
+          is_me = m["senderId"] == me["id"]
+
+          if is_me:
+            st.markdown(
+                f"<div style='text-align: right; margin-bottom: 8px;'><b"
+                f" style='color: #E8A33D;'>Você</b> <span"
+                f" style='font-size: 11px; color: gray;'>({format_time(m['ts'])})</span><br><div"
+                f" style='display: inline-block; background: #E8A33D33;"
+                f" padding: 8px 12px; border-radius: 10px; text-align:"
+                f" left;'>{m['text']}</div></div>",
+                unsafe_allow_html=True,
+            )
+          else:
+            st.markdown(
+                f"<div style='text-align: left; margin-bottom: 8px;'><b"
+                f" style='color: #2F8F82;'>{sender_name}</b> <span"
+                f" style='font-size: 11px; color: gray;'>({format_time(m['ts'])})</span><br><div"
+                f" style='display: inline-block; background: #f0f2f6; padding:"
+                f" 8px 12px; border-radius: 10px;'>{m['text']}</div></div>",
+                unsafe_allow_html=True,
+            )
+
+    # Caixa de envio de mensagem
+    with st.form(
+        key=f"form_msg_{conv_id}", clear_on_submit=True
+    ):  # Chave dinâmica para limpar o input após envio
+      col_input, col_btn = st.columns([5, 1])
+      with col_input:
+        msg_text = st.text_input(
+            "Mensagem", label_visibility="collapsed", placeholder="Digite sua mensagem..."
+        )
+      with col_btn:
+        send_pressed = st.form_submit_button("Enviar ➔", use_container_width=True)
+
+      if send_pressed and msg_text.strip():
+        new_msg = {
+            "id": str(int(datetime.now().timestamp() * 1000)),
+            "convId": conv_id,
+            "senderId": me["id"],
+            "text": msg_text.strip(),
+            "ts": int(datetime.now().timestamp() * 1000),
+        }
+        st.session_state.messages.append(new_msg)
+        st.rerun()
+
+
+# ==========================================
+# ROTEADOR DE TELAS
+# ==========================================
+if st.session_state.view == "landing":
+  render_landing()
+elif st.session_state.view == "adminLogin":
+  render_admin_login()
+elif st.session_state.view == "admin":
+  render_admin_dashboard()
+elif st.session_state.view == "employeeLogin":
+  render_employee_login()
+elif st.session_state.view == "chat":
+  render_chat_app()
